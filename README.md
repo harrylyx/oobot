@@ -66,6 +66,11 @@ cp .env.example .env
 | `CLAUDE_COMMAND` | `claude` | Command to run in new windows |
 | `MONITOR_POLL_INTERVAL` | `2.0` | Polling interval in seconds |
 
+> If running on a VPS where there's no interactive terminal to approve permissions, consider:
+> ```
+> CLAUDE_COMMAND=IS_SANDBOX=1 claude --dangerously-skip-permissions
+> ```
+
 ## Hook Setup (Recommended)
 
 Auto-install via CLI:
