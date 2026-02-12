@@ -32,7 +32,9 @@ import asyncio
 import io
 import logging
 import time
+import urllib.request
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from telegram import (
     Bot,
@@ -51,6 +53,7 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+from telegram.request import HTTPXRequest
 
 from .config import config
 from .handlers.callback_data import (
@@ -1432,6 +1435,71 @@ async def handle_new_message(msg: NewMessage, bot: Bot) -> None:
 # --- App lifecycle ---
 
 
+def _sanitize_proxy_url(raw: str) -> str:
+    """Return a proxy URL without credentials for safe logging."""
+    parsed = urlsplit(raw)
+    host = parsed.hostname or ""
+    if parsed.port is not None:
+        host = f"{host}:{parsed.port}"
+    if parsed.scheme:
+        return f"{parsed.scheme}://{host}"
+    return host or "<invalid>"
+
+
+def _detected_system_proxies() -> dict[str, str]:
+    """Read system/env proxy settings as seen by urllib/httpx."""
+    detected: dict[str, str] = {}
+    for key, value in urllib.request.getproxies().items():
+        if isinstance(value, str) and value:
+            detected[key] = _sanitize_proxy_url(value)
+    return detected
+
+
+def _build_httpx_request() -> HTTPXRequest:
+    """Build a Telegram request client with explicit proxy/trust_env settings."""
+    return HTTPXRequest(
+        proxy=config.telegram_proxy,
+        httpx_kwargs={"trust_env": config.telegram_trust_env},
+    )
+
+
+def _log_telegram_network_settings() -> None:
+    """Emit startup diagnostics for Telegram networking configuration."""
+    detected = _detected_system_proxies()
+    explicit_proxy = (
+        _sanitize_proxy_url(config.telegram_proxy)
+        if config.telegram_proxy
+        else "<none>"
+    )
+    logger.info(
+        "Telegram network config: trust_env=%s, explicit_proxy=%s, detected_proxies=%s",
+        config.telegram_trust_env,
+        explicit_proxy,
+        detected,
+    )
+    if detected and not config.telegram_trust_env and not config.telegram_proxy:
+        logger.info(
+            "System proxies were detected but are ignored because TELEGRAM_TRUST_ENV is false"
+        )
+
+
+async def error_handler(
+    update: object,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    """Log unhandled handler exceptions with traceback context."""
+    error = context.error
+    if error is None:
+        logger.error("Unhandled Telegram update error without exception object")
+        return
+    logger.error(
+        "Unhandled Telegram update error (update=%s): %s",
+        type(update).__name__,
+        error,
+        exc_info=(type(error), error, error.__traceback__),
+    )
+
+
 async def post_init(application: Application) -> None:
     global session_monitor, _status_poll_task
 
@@ -1490,13 +1558,21 @@ async def post_shutdown(application: Application) -> None:
 
 
 def create_bot() -> Application:
+    _log_telegram_network_settings()
+    request = _build_httpx_request()
+    get_updates_request = _build_httpx_request()
+
     application = (
         Application.builder()
         .token(config.telegram_bot_token)
+        .request(request)
+        .get_updates_request(get_updates_request)
         .post_init(post_init)
         .post_shutdown(post_shutdown)
         .build()
     )
+
+    application.add_error_handler(error_handler)
 
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("history", history_command))

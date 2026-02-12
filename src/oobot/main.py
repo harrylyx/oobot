@@ -9,6 +9,8 @@ Handles two execution modes:
 import logging
 import sys
 
+from telegram.error import NetworkError
+
 
 def main() -> None:
     """Main entry point."""
@@ -41,7 +43,15 @@ def main() -> None:
     from .bot import create_bot
 
     application = create_bot()
-    application.run_polling(allowed_updates=["message", "callback_query"])
+    try:
+        application.run_polling(allowed_updates=["message", "callback_query"])
+    except NetworkError as e:
+        logger.error("Telegram polling failed with network error: %s", e)
+        logger.error(
+            "Hint: check TELEGRAM_PROXY / TELEGRAM_TRUST_ENV. "
+            "On macOS, system proxies may be auto-detected even when shell env vars are empty."
+        )
+        raise
 
 
 if __name__ == "__main__":

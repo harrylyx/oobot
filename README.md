@@ -75,6 +75,10 @@ Optional variables:
 | `OPENCODE_STORAGE_PATH` | `~/.local/share/opencode/storage` | OpenCode storage backend |
 | `OPENCODE_PROJECTS_PATH` | `~/.opencode/projects` | Legacy JSONL backend |
 | `MONITOR_POLL_INTERVAL` | `2.0` | Monitor polling interval in seconds |
+| `TELEGRAM_TRUST_ENV` | `false` | Trust env/system proxy settings for Telegram requests |
+| `TELEGRAM_PROXY` | unset | Explicit proxy URL for Telegram requests |
+
+By default, OOBot uses a direct Telegram connection (`TELEGRAM_TRUST_ENV=false`), which avoids accidental macOS/system proxy auto-detection.
 
 ## Hook Installation (Recommended)
 

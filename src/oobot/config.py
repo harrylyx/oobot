@@ -1,7 +1,8 @@
 """Application configuration — reads env vars and exposes a singleton.
 
-Loads TELEGRAM_BOT_TOKEN, ALLOWED_USERS, tmux/OpenCode paths, and
-monitoring intervals from environment variables (with .env support).
+Loads TELEGRAM_BOT_TOKEN, ALLOWED_USERS, tmux/OpenCode paths,
+Telegram network settings, and monitoring intervals from environment
+variables (with .env support).
 Config directory defaults to ./.oobot, overridable via OOBOT_DIR.
 The .env file is loaded from the current project directory (cwd).
 The module-level `config` instance is imported by nearly every other module.
@@ -18,6 +19,20 @@ from dotenv import load_dotenv
 from .utils import oobot_dir
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_bool_env(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    value = raw.strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(
+        f"{name} must be a boolean value (true/false/1/0/yes/no/on/off), got: {raw!r}"
+    )
 
 
 class Config:
@@ -78,17 +93,25 @@ class Config:
         ).expanduser()
         self.monitor_poll_interval = float(os.getenv("MONITOR_POLL_INTERVAL", "2.0"))
 
+        # Telegram network configuration
+        # - trust_env=False avoids implicit macOS/system proxy auto-detection by default
+        # - telegram_proxy allows forcing a specific proxy URL when needed
+        self.telegram_trust_env = _parse_bool_env("TELEGRAM_TRUST_ENV", False)
+        self.telegram_proxy = os.getenv("TELEGRAM_PROXY", "").strip() or None
+
         # Display user messages in history and real-time notifications
         # When True, user messages are shown with a 👤 prefix
         self.show_user_messages = True
 
         logger.debug(
             "Config initialized: dir=%s, token=%s..., allowed_users=%d, "
-            "tmux_session=%s",
+            "tmux_session=%s, trust_env=%s, explicit_proxy=%s",
             self.config_dir,
             self.telegram_bot_token[:8],
             len(self.allowed_users),
             self.tmux_session_name,
+            self.telegram_trust_env,
+            bool(self.telegram_proxy),
         )
 
     def is_user_allowed(self, user_id: int) -> bool:

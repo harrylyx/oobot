@@ -73,6 +73,10 @@ cp .env.example .env
 | `OPENCODE_STORAGE_PATH` | `~/.local/share/opencode/storage` | OpenCode 存储后端路径 |
 | `OPENCODE_PROJECTS_PATH` | `~/.opencode/projects` | 旧版 JSONL 路径 |
 | `MONITOR_POLL_INTERVAL` | `2.0` | 轮询间隔（秒） |
+| `TELEGRAM_TRUST_ENV` | `false` | 是否信任环境/系统代理设置来访问 Telegram |
+| `TELEGRAM_PROXY` | 未设置 | Telegram 请求使用的显式代理地址 |
+
+默认情况下，OOBot 直连 Telegram（`TELEGRAM_TRUST_ENV=false`），避免被 macOS/系统代理自动接管。
 
 ## 安装 Hook（推荐）
 
