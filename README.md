@@ -1,44 +1,51 @@
-# CCBot
+# OOBot
 
 [中文文档](README_CN.md)
 
-Control Claude Code sessions remotely via Telegram — monitor, interact, and manage AI coding sessions running in tmux.
+Control OpenCode sessions remotely via Telegram — monitor, interact, and manage AI coding sessions running in tmux.
+
+> This project is adapted from [ccbot](https://github.com/six-ddc/ccbot) and further evolved for OpenCode workflows.
 
 https://github.com/user-attachments/assets/15ffb38e-5eb9-4720-93b9-412e4961dc93
 
-## Why CCBot?
+## Why OOBot?
 
-Claude Code runs in your terminal. When you step away from your computer — commuting, on the couch, or just away from your desk — the session keeps working, but you lose visibility and control.
+OpenCode runs in your terminal. When you step away from your computer — commuting, on the couch, or just away from your desk — the session keeps working, but you lose visibility and control.
 
-CCBot solves this by letting you **seamlessly continue the same session from Telegram**. The key insight is that it operates on **tmux**, not the Claude Code SDK. Your Claude Code process stays exactly where it is, in a tmux window on your machine. CCBot simply reads its output and sends keystrokes to it. This means:
+OOBot solves this by letting you **seamlessly continue the same session from Telegram**. The key insight is that it operates on **tmux**, not the OpenCode SDK. Your OpenCode process stays exactly where it is, in a tmux window on your machine. OOBot simply reads its output and sends keystrokes to it. This means:
 
-- **Switch from desktop to phone mid-conversation** — Claude is working on a refactor? Walk away, keep monitoring and responding from Telegram.
+- **Switch from desktop to phone mid-conversation** — OpenCode is working on a refactor? Walk away, keep monitoring and responding from Telegram.
 - **Switch back to desktop anytime** — Since the tmux session was never interrupted, just `tmux attach` and you're back in the terminal with full scrollback and context.
 - **Run multiple sessions in parallel** — Each Telegram topic maps to a separate tmux window, so you can juggle multiple projects from one chat group.
 
-Other Telegram bots for Claude Code typically wrap the Claude Code SDK to create separate API sessions. Those sessions are isolated — you can't resume them in your terminal. CCBot takes a different approach: it's just a thin control layer over tmux, so the terminal remains the source of truth and you never lose the ability to switch back.
+Other Telegram bots for OpenCode typically wrap the OpenCode SDK to create separate API sessions. Those sessions are isolated — you can't resume them in your terminal. OOBot takes a different approach: it's just a thin control layer over tmux, so the terminal remains the source of truth and you never lose the ability to switch back.
 
-In fact, CCBot itself was built this way — iterating on itself through Claude Code sessions monitored and driven from Telegram via CCBot.
+In fact, OOBot itself was built this way — iterating on itself through OpenCode sessions monitored and driven from Telegram via OOBot.
 
 ## Features
 
-- **Topic-based sessions** — Each Telegram topic maps 1:1 to a tmux window and Claude session
+- **Topic-based sessions** — Each Telegram topic maps 1:1 to a tmux window and OpenCode session
 - **Real-time notifications** — Get Telegram messages for assistant responses, thinking content, tool use/result, and local command output
 - **Interactive UI** — Navigate AskUserQuestion, ExitPlanMode, and Permission Prompts via inline keyboard
-- **Send messages** — Forward text to Claude Code via tmux keystrokes
-- **Slash command forwarding** — Send any `/command` directly to Claude Code (e.g. `/clear`, `/compact`, `/cost`)
-- **Create new sessions** — Start Claude Code sessions from Telegram via directory browser
+- **Send messages** — Forward text to OpenCode via tmux keystrokes
+- **File transfer** — Upload Telegram documents into the bound project, and download files with `/download`
+- **Slash command forwarding** — Send any `/command` directly to OpenCode (e.g. `/clear`, `/compact`, `/cost`)
+- **Mobile shortcuts** — Open a shortcut panel (`/keys`) for one-tap OpenCode commands and control keys
+- **Create new sessions** — Start OpenCode sessions from Telegram via directory browser
 - **Kill sessions** — Close a topic to auto-kill the associated tmux window
 - **Message history** — Browse conversation history with pagination (newest first)
-- **Hook-based session tracking** — Auto-associates tmux windows with Claude sessions via `SessionStart` hook
+- **Plugin-based session tracking** — Auto-associates tmux windows with OpenCode sessions via `session.created` bridge
 - **Persistent state** — Thread bindings and read offsets survive restarts
 
 ## Installation
 
 ```bash
-cd ccbot
+cd oobot
 uv sync
 ```
+
+Use the project virtual environment via `uv` commands (`uv run ...`). Avoid global `python`/`pip` installs.
+On this machine, manage Python versions with `pyenv`, then use `uv` for environment/package sync (for example: `pyenv version`, then `uv sync`).
 
 ## Configuration
 
@@ -55,6 +62,8 @@ uv sync
 cp .env.example .env
 ```
 
+`oobot` reads `.env` from the current project directory (where you run the command).
+
 **Required:**
 
 | Variable             | Description                       |
@@ -66,15 +75,17 @@ cp .env.example .env
 
 | Variable                | Default    | Description                                      |
 | ----------------------- | ---------- | ------------------------------------------------ |
-| `CCBOT_DIR`             | `~/.ccbot` | Config/state directory (`.env` loaded from here) |
-| `TMUX_SESSION_NAME`     | `ccbot`    | Tmux session name                                |
-| `CLAUDE_COMMAND`        | `claude`   | Command to run in new windows                    |
+| `OOBOT_DIR`             | `./.oobot` | Config/state directory |
+| `TMUX_SESSION_NAME`     | `oobot`    | Tmux session name                                |
+| `OPENCODE_COMMAND`      | `opencode` | Command to run in new windows                    |
+| `OPENCODE_STORAGE_PATH` | `~/.local/share/opencode/storage` | OpenCode storage backend path |
+| `OPENCODE_PROJECTS_PATH` | `~/.opencode/projects` | Legacy OpenCode JSONL path |
 | `MONITOR_POLL_INTERVAL` | `2.0`      | Polling interval in seconds                      |
 
 > If running on a VPS where there's no interactive terminal to approve permissions, consider:
 >
 > ```
-> CLAUDE_COMMAND=IS_SANDBOX=1 claude --dangerously-skip-permissions
+> OPENCODE_COMMAND=IS_SANDBOX=1 opencode --dangerously-skip-permissions
 > ```
 
 ## Hook Setup (Recommended)
@@ -82,29 +93,18 @@ cp .env.example .env
 Auto-install via CLI:
 
 ```bash
-ccbot hook --install
+uv run oobot hook --install
 ```
 
-Or manually add to `~/.claude/settings.json`:
+This installs a plugin bridge at `~/.config/opencode/plugins/oobot-session-map.js`.
+OpenCode's current config schema does not accept a top-level `hooks` key.
 
-```json
-{
-  "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [{ "type": "command", "command": "ccbot hook", "timeout": 5 }]
-      }
-    ]
-  }
-}
-```
-
-This writes window-session mappings to `$CCBOT_DIR/session_map.json` (`~/.ccbot/` by default), so the bot automatically tracks which Claude session is running in each tmux window — even after `/clear` or session restarts.
+This writes window-session mappings to `$OOBOT_DIR/session_map.json` (`./.oobot/` by default), so the bot automatically tracks which OpenCode session is running in each tmux window — even after `/clear` or session restarts.
 
 ## Usage
 
 ```bash
-uv run ccbot
+uv run oobot
 ```
 
 ### Commands
@@ -116,19 +116,29 @@ uv run ccbot
 | `/start`      | Show welcome message            |
 | `/history`    | Message history for this topic  |
 | `/screenshot` | Capture terminal screenshot     |
-| `/esc`        | Send Escape to interrupt Claude |
+| `/keys`       | Show mobile shortcut keyboard   |
+| `/esc`        | Send Escape to interrupt OpenCode |
+| `/pwd`        | Show current project directory  |
+| `/ls`         | List files in current project   |
+| `/download`   | Download file from project      |
 
-**Claude Code commands (forwarded via tmux):**
+**OpenCode commands (forwarded via tmux):**
 
 | Command    | Description                  |
 | ---------- | ---------------------------- |
 | `/clear`   | Clear conversation history   |
 | `/compact` | Compact conversation context |
 | `/cost`    | Show token/cost usage        |
-| `/help`    | Show Claude Code help        |
-| `/memory`  | Edit CLAUDE.md               |
+| `/help`    | Show OpenCode help           |
+| `/memory`  | Edit memory file             |
 
-Any unrecognized `/command` is also forwarded to Claude Code as-is (e.g. `/review`, `/doctor`, `/init`).
+Any unrecognized `/command` is also forwarded to OpenCode as-is (e.g. `/review`, `/doctor`, `/init`).
+
+### File Upload / Download
+
+- Upload: send a Telegram **document** in a bound topic; OOBot saves it to the current project directory.
+- Optional upload target: add a caption like `src/data/input.json` (or `/upload src/data/input.json`) to control the destination path.
+- Download: run `/download relative/path/to/file` in the topic.
 
 ### Topic Workflow
 
@@ -139,11 +149,11 @@ Any unrecognized `/command` is also forwarded to Claude Code as-is (e.g. `/revie
 1. Create a new topic in the Telegram group
 2. Send any message in the topic
 3. A directory browser appears — select the project directory
-4. A tmux window is created, `claude` starts, and your pending message is forwarded
+4. A tmux window is created, `opencode` starts, and your pending message is forwarded
 
 **Sending messages:**
 
-Once a topic is bound to a session, just send text in that topic — it gets forwarded to Claude Code via tmux keystrokes.
+Once a topic is bound to a session, just send text in that topic — it gets forwarded to OpenCode via tmux keystrokes.
 
 **Killing a session:**
 
@@ -171,14 +181,14 @@ I'll look into the login bug...
 
 The monitor polls session JSONL files every 2 seconds and sends notifications for:
 
-- **Assistant responses** — Claude's text replies
+- **Assistant responses** — OpenCode's text replies
 - **Thinking content** — Shown as expandable blockquotes
 - **Tool use/result** — Summarized with stats (e.g. "Read 42 lines", "Found 5 matches")
 - **Local command output** — stdout from commands like `git status`, prefixed with `❯ command_name`
 
 Notifications are delivered to the topic bound to the session's window.
 
-## Running Claude Code in tmux
+## Running OpenCode in tmux
 
 ### Option 1: Create via Telegram (Recommended)
 
@@ -189,27 +199,28 @@ Notifications are delivered to the topic bound to the session's window.
 ### Option 2: Create Manually
 
 ```bash
-tmux attach -t ccbot
+tmux attach -t oobot
 tmux new-window -n myproject -c ~/Code/myproject
-# Then start Claude Code in the new window
-claude
+# Then start OpenCode in the new window
+opencode
 ```
 
-The window must be in the `ccbot` tmux session (configurable via `TMUX_SESSION_NAME`). The hook will automatically register it in `session_map.json` when Claude starts.
+The window must be in the `oobot` tmux session (configurable via `TMUX_SESSION_NAME`). The hook will automatically register it in `session_map.json` when OpenCode starts.
 
 ## Data Storage
 
 | Path                            | Description                                                             |
 | ------------------------------- | ----------------------------------------------------------------------- |
-| `$CCBOT_DIR/state.json`         | Thread bindings, window states, and per-user read offsets               |
-| `$CCBOT_DIR/session_map.json`   | Hook-generated `{tmux_session:window_name: {session_id, cwd}}` mappings |
-| `$CCBOT_DIR/monitor_state.json` | Monitor byte offsets per session (prevents duplicate notifications)     |
-| `~/.claude/projects/`           | Claude Code session data (read-only)                                    |
+| `$OOBOT_DIR/state.json`         | Thread bindings, window states, and per-user read offsets               |
+| `$OOBOT_DIR/session_map.json`   | Hook-generated `{tmux_session:window_name: {session_id, cwd}}` mappings |
+| `$OOBOT_DIR/monitor_state.json` | Monitor byte offsets per session (prevents duplicate notifications)     |
+| `~/.local/share/opencode/storage/` | OpenCode session data (read-only, current format)                    |
+| `~/.opencode/projects/`         | OpenCode session data (legacy JSONL format, read-only)                  |
 
 ## File Structure
 
 ```
-src/ccbot/
+src/oobot/
 ├── __init__.py            # Package entry point
 ├── main.py                # CLI dispatcher (hook subcommand + bot bootstrap)
 ├── hook.py                # Hook subcommand for session tracking (+ --install)
@@ -218,7 +229,7 @@ src/ccbot/
 ├── session.py             # Session management, state persistence, message history
 ├── session_monitor.py     # JSONL file monitoring (polling + change detection)
 ├── monitor_state.py       # Monitor state persistence (byte offsets)
-├── transcript_parser.py   # Claude Code JSONL transcript parsing
+├── transcript_parser.py   # OpenCode JSONL transcript parsing
 ├── terminal_parser.py     # Terminal pane parsing (interactive UI + status line)
 ├── markdown_v2.py         # Markdown → Telegram MarkdownV2 conversion
 ├── telegram_sender.py     # Message splitting + synchronous HTTP send

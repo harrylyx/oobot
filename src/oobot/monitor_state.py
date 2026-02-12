@@ -1,8 +1,9 @@
-"""Monitor state persistence — tracks byte offsets for each session.
+"""Monitor state persistence — tracks per-session monitor cursors.
 
-Persists TrackedSession records (session_id, file_path, last_byte_offset)
-to ~/.ccbot/monitor_state.json so the session monitor can resume
-incremental reading after restarts without re-sending old messages.
+Persists TrackedSession records to ./.oobot/monitor_state.json so the
+session monitor can resume incremental reading after restarts without
+re-sending old messages. Supports both legacy JSONL byte offsets and
+modern OpenCode storage message cursors.
 
 Key classes: MonitorState, TrackedSession.
 """
@@ -20,11 +21,13 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class TrackedSession:
-    """State for a tracked Claude Code session."""
+    """State for a tracked OpenCode session."""
 
     session_id: str
     file_path: str  # Path to .jsonl file
     last_byte_offset: int = 0  # Byte offset for incremental reading
+    last_event_created: int = 0  # Storage backend cursor (message created ms)
+    last_event_id: str = ""  # Storage backend cursor tiebreaker (message id)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dict for JSON serialization."""
@@ -37,6 +40,8 @@ class TrackedSession:
             session_id=data.get("session_id", ""),
             file_path=data.get("file_path", ""),
             last_byte_offset=data.get("last_byte_offset", 0),
+            last_event_created=data.get("last_event_created", 0),
+            last_event_id=data.get("last_event_id", ""),
         )
 
 
@@ -64,7 +69,9 @@ class MonitorState:
             self.tracked_sessions = {
                 k: TrackedSession.from_dict(v) for k, v in sessions.items()
             }
-            logger.info(f"Loaded {len(self.tracked_sessions)} tracked sessions from state")
+            logger.info(
+                f"Loaded {len(self.tracked_sessions)} tracked sessions from state"
+            )
         except (json.JSONDecodeError, KeyError, TypeError) as e:
             logger.warning(f"Failed to load state file: {e}")
             self.tracked_sessions = {}
@@ -82,7 +89,9 @@ class MonitorState:
         try:
             atomic_write_json(self.state_file, data)
             self._dirty = False
-            logger.debug("Saved %d tracked sessions to state", len(self.tracked_sessions))
+            logger.debug(
+                "Saved %d tracked sessions to state", len(self.tracked_sessions)
+            )
         except OSError as e:
             logger.error("Failed to save state file: %s", e)
 
@@ -105,4 +114,3 @@ class MonitorState:
         """Save state only if it has been modified."""
         if self._dirty:
             self.save()
-

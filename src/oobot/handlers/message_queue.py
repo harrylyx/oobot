@@ -367,7 +367,9 @@ async def _process_status_update_task(bot: Bot, user_id: int, task: MessageTask)
         await _do_clear_status_message(bot, user_id, tid)
         return
 
-    # Send typing indicator if Claude is interruptible (working)
+            # Send typing indicator if OpenCode is interruptible (working)
+
+    
     from telegram.constants import ChatAction
 
     if "esc to interrupt" in status_text.lower():

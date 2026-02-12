@@ -1,7 +1,7 @@
-"""Shared utility functions used across multiple CCBot modules.
+"""Shared utility functions used across multiple oobot modules.
 
 Provides:
-  - ccbot_dir(): resolve config directory from CCBOT_DIR env var.
+  - oobot_dir(): resolve config directory from OOBOT_DIR env var.
   - atomic_write_json(): crash-safe JSON file writes via temp+rename.
   - read_cwd_from_jsonl(): extract the cwd field from the first JSONL entry.
 """
@@ -14,13 +14,18 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-CCBOT_DIR_ENV = "CCBOT_DIR"
+OOBOT_DIR_ENV = "OOBOT_DIR"
 
 
-def ccbot_dir() -> Path:
-    """Resolve config directory from CCBOT_DIR env var or default ~/.ccbot."""
-    raw = os.environ.get(CCBOT_DIR_ENV, "")
-    return Path(raw) if raw else Path.home() / ".ccbot"
+def oobot_dir() -> Path:
+    """Resolve config directory from OOBOT_DIR env var or default ./.oobot."""
+    raw = os.environ.get(OOBOT_DIR_ENV, "")
+    if raw:
+        path = Path(raw).expanduser()
+        if not path.is_absolute():
+            path = Path.cwd() / path
+        return path
+    return Path.cwd() / ".oobot"
 
 
 def atomic_write_json(path: Path, data: Any, indent: int = 2) -> None:

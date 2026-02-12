@@ -1,12 +1,12 @@
-"""JSONL transcript parser for Claude Code session files.
+"""JSONL transcript parser for OpenCode session files.
 
-Parses Claude Code session JSONL files and extracts structured messages.
+Parses OpenCode session JSONL files and extracts structured messages.
 Handles: text, thinking, tool_use, tool_result, local_command, and user messages.
 Tool pairing: tool_use blocks in assistant messages are matched with
 tool_result blocks in subsequent user messages via tool_use_id.
 
 Shared by both session.py (history) and session_monitor.py (real-time).
-Format reference: https://github.com/desis123/claude-code-viewer
+Format reference: https://github.com/desis123/claude-code-viewer (OpenCode uses compatible format)
 
 Key classes: TranscriptParser (static methods), ParsedEntry, ParsedMessage, PendingToolInfo.
 """
@@ -51,7 +51,7 @@ class PendingToolInfo:
 
 
 class TranscriptParser:
-    """Parser for Claude Code JSONL session files.
+    """Parser for OpenCode JSONL session files.
 
     Expected JSONL entry structure:
     - type: "user" | "assistant" | "summary" | "file-history-snapshot" | ...

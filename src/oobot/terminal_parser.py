@@ -1,4 +1,4 @@
-"""Terminal output parser — detects Claude Code UI elements in pane text.
+"""Terminal output parser — detects OpenCode UI elements in pane text.
 
 Parses captured tmux pane content to detect:
   - Interactive UIs (AskUserQuestion, ExitPlanMode, Permission Prompt,
@@ -6,8 +6,8 @@ Parses captured tmux pane content to detect:
     delimiters.
   - Status line (spinner characters + working text) by scanning from bottom up.
 
-All Claude Code text patterns live here. To support a new UI type or
-a changed Claude Code version, edit UI_PATTERNS / STATUS_SPINNERS.
+All OpenCode text patterns live here. To support a new UI type or
+a changed OpenCode version, edit UI_PATTERNS / STATUS_SPINNERS.
 
 Key functions: is_interactive_ui(), extract_interactive_content(), parse_status_line().
 """
@@ -35,7 +35,7 @@ class UIPattern:
     marks the end.  Both boundary lines are included in the extracted content.
 
     ``top`` and ``bottom`` are tuples of compiled regexes — any single match
-    is sufficient.  This accommodates wording changes across Claude Code
+    is sufficient.  This accommodates wording changes across OpenCode
     versions (e.g. a reworded confirmation prompt).
     """
 
@@ -53,7 +53,7 @@ UI_PATTERNS: list[UIPattern] = [
         top=(
             re.compile(r"^\s*Would you like to proceed\?"),
             # v2.1.29+: longer prefix that may wrap across lines
-            re.compile(r"^\s*Claude has written up a plan"),
+            re.compile(r"^\s*(Claude|OpenCode) has written up a plan"),
         ),
         bottom=(
             re.compile(r"^\s*ctrl-g to edit in "),
@@ -171,12 +171,12 @@ def is_interactive_ui(pane_text: str) -> bool:
 
 # ── Status line parsing ─────────────────────────────────────────────────
 
-# Spinner characters Claude Code uses in its status line
+# Spinner characters OpenCode uses in its status line
 STATUS_SPINNERS = frozenset(["·", "✻", "✽", "✶", "✳", "✢"])
 
 
 def parse_status_line(pane_text: str) -> str | None:
-    """Extract the Claude Code status line from terminal output.
+    """Extract the OpenCode status line from terminal output.
 
     Status lines start with a spinner character (see STATUS_SPINNERS).
     Returns the text after the spinner, or None if no status line found.

@@ -1,6 +1,6 @@
-"""Interactive UI handling for Claude Code prompts.
+"""Interactive UI handling for OpenCode prompts.
 
-Handles interactive terminal UIs displayed by Claude Code:
+Handles interactive terminal UIs displayed by OpenCode:
   - AskUserQuestion: Multi-choice question prompts
   - ExitPlanMode: Plan mode exit confirmation
   - Permission Prompt: Tool permission requests

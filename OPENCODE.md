@@ -1,4 +1,4 @@
-# CLAUDE.md
+# OPENCODE.md
 
 ## Development Principles
 
@@ -24,7 +24,7 @@ Every Python source file must start with a module-level docstring (`"""..."""`) 
 
 ### Code Quality Checks
 
-After every code change, run `pyright src/ccbot/` to check for type errors. Ensure 0 errors before committing.
+After every code change, run `pyright src/oobot/` to check for type errors. Ensure 0 errors before committing.
 
 ### Unified MarkdownV2 Formatting
 
@@ -32,7 +32,7 @@ All messages sent to Telegram use `parse_mode="MarkdownV2"`. The `telegramify-ma
 
 ### Window as the Core Unit
 
-All logic (message sending, history viewing, notifications) operates on tmux windows as the core unit, not project directories (cwd). Window names default to the directory name (e.g., `project`). The same directory can have multiple windows (auto-suffixed, e.g., `project-2`), each independently associated with its own Claude session.
+All logic (message sending, history viewing, notifications) operates on tmux windows as the core unit, not project directories (cwd). Window names default to the directory name (e.g., `project`). The same directory can have multiple windows (auto-suffixed, e.g., `project-2`), each independently associated with its own OpenCode session.
 
 ### Topic-Only Architecture (No Backward Compatibility)
 
@@ -43,7 +43,7 @@ The bot operates exclusively in Telegram Forum (topics) mode. There is **no** `a
 ```
 ┌─────────────┐      ┌─────────────┐      ┌─────────────┐
 │  Topic ID   │ ───▶ │ Window Name │ ───▶ │ Session ID  │
-│  (Telegram) │      │   (tmux)    │      │  (Claude)   │
+│  (Telegram) │      │   (tmux)    │      │  (OpenCode) │
 └─────────────┘      └─────────────┘      └─────────────┘
      thread_bindings      session_map.json
      (state.json)         (written by hook)
@@ -56,7 +56,7 @@ The bot operates exclusively in Telegram Forum (topics) mode. There is **no** `a
 thread_bindings: dict[int, dict[int, str]]  # user_id → {thread_id → window_name}
 ```
 
-- Storage: memory + `~/.ccbot/state.json`
+- Storage: memory + `./.oobot/state.json` (default)
 - Written when: user creates a new session via the directory browser in a topic
 - Purpose: route user messages to the correct tmux window
 
@@ -65,13 +65,13 @@ thread_bindings: dict[int, dict[int, str]]  # user_id → {thread_id → window_
 ```python
 # session_map.json (key format: "tmux_session:window_name")
 {
-  "ccbot:project": {"session_id": "uuid-xxx", "cwd": "/path/to/project"},
-  "ccbot:project-2": {"session_id": "uuid-yyy", "cwd": "/path/to/project"}
+  "oobot:project": {"session_id": "uuid-xxx", "cwd": "/path/to/project"},
+  "oobot:project-2": {"session_id": "uuid-yyy", "cwd": "/path/to/project"}
 }
 ```
 
-- Storage: `~/.ccbot/session_map.json`
-- Written when: Claude Code's `SessionStart` hook fires
+- Storage: `./.oobot/session_map.json` (default)
+- Written when: plugin-bridged `session.created` event fires
 - Property: one window maps to one session; session_id changes after `/clear`
 - Purpose: SessionMonitor uses this mapping to decide which sessions to watch
 
@@ -125,7 +125,7 @@ The bot uses per-user message queues + worker pattern for all send tasks, ensuri
 
 ### Status Message Handling
 
-Status messages (Claude status line) use special handling to optimize user experience:
+Status messages (OpenCode status line) use special handling to optimize user experience:
 
 **Conversion**: The status message is edited into the first content message, reducing message count:
 - When a status message exists, the first content message updates it via edit
@@ -153,25 +153,14 @@ Session monitor tracks window → session_id mappings via `session_map.json` (wr
 
 ### Service Restart
 
-To restart the ccbot service after code changes, run `./scripts/restart.sh`. The script detects whether a running `uv run ccbot` process exists in the `__main__` window of tmux session `ccbot`, sends Ctrl-C to stop it, restarts, and outputs startup logs for confirmation.
+To restart the oobot service after code changes, run `./scripts/restart.sh`. The script detects whether a running `uv run oobot` process exists in the `__main__` window of tmux session `oobot`, sends Ctrl-C to stop it, restarts, and outputs startup logs for confirmation.
 
 ### Hook Configuration
 
-Auto-install: `ccbot hook --install`
+Auto-install: `uv run oobot hook --install`
 
-Or manually configure in `~/.claude/settings.json`:
-
-```json
-{
-  "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [{ "type": "command", "command": "ccbot hook", "timeout": 5 }]
-      }
-    ]
-  }
-}
-```
+This installs a plugin bridge at `~/.config/opencode/plugins/oobot-session-map.js`.
+OpenCode's current config schema does not accept a top-level `hooks` key.
 
 ## Architecture
 
@@ -181,9 +170,9 @@ Or manually configure in `~/.claude/settings.json`:
 │  - Topic-based routing: 1 topic = 1 window = 1 session             │
 │  - /history: Paginated message history (default: latest page)      │
 │  - /screenshot: Capture tmux pane as PNG                           │
-│  - /esc: Send Escape to interrupt Claude                           │
-│  - Send text → Claude Code via tmux keystrokes                     │
-│  - Forward /commands to Claude Code                                │
+│  - /esc: Send Escape to interrupt OpenCode                         │
+│  - Send text → OpenCode via tmux keystrokes                        │
+│  - Forward /commands to OpenCode                                   │
 │  - Create sessions via directory browser in unbound topics         │
 │  - Tool use → tool result: edit message in-place                   │
 │  - Interactive UI: AskUserQuestion / ExitPlanMode / Permission     │
@@ -214,44 +203,46 @@ Or manually configure in `~/.claude/settings.json`:
            ▼                                  ▼
 ┌────────────────────────┐         ┌─────────────────────────┐
 │  TranscriptParser      │         │  Tmux Windows           │
-│  (transcript_parser.py)│         │  - Claude Code process  │
+│  (transcript_parser.py)│         │  - OpenCode process     │
 │  - Parse JSONL entries │         │  - One window per       │
 │  - Pair tool_use ↔     │         │    topic/session        │
 │    tool_result         │         └────────────┬────────────┘
 │  - Format expandable   │                      │
-│    quotes for thinking │              SessionStart hook
+│    quotes for thinking │      session.created bridge
 │  - Extract history     │                      │
 └────────────────────────┘                      ▼
                                     ┌────────────────────────┐
 ┌────────────────────────┐         │  Hook (hook.py)        │
 │  SessionManager        │◄────────│  - Receive hook stdin  │
-│  (session.py)          │  reads  │  - Write session_map   │
-│  - Window ↔ Session    │  map    │    .json               │
-│    resolution          │         └────────────────────────┘
-│  - Thread bindings     │
-│    (topic → window)    │         ┌────────────────────────┐
-│  - Message history     │────────►│  Claude Sessions       │
-│    retrieval           │  reads  │  ~/.claude/projects/   │
-└────────────────────────┘  JSONL  │  - sessions-index      │
-                                   │  - *.jsonl files       │
-┌────────────────────────┐         └────────────────────────┘
+│  - Window ↔ Session    │  reads  │  - Write session_map   │
+│    resolution          │  map    │    .json               │
+│  - Thread bindings     │         └────────────────────────┘
+│    (topic → window)    │
+│  - Message history     │         ┌────────────────────────┐
+│    retrieval           │────────►│  OpenCode Sessions     │
+└────────────────────────┘  reads  │ ~/.local/share/opencode│
+                             store │ /storage (current)     │
+                                   │ + ~/.opencode/projects │
+                                   │   (legacy JSONL)       │
+                                   └────────────────────────┘
+┌────────────────────────┐
 │  MonitorState          │
 │  (monitor_state.py)    │
-│  - Track byte offset   │
+│  - Track storage cursor│
 │  - Prevent duplicates  │
 │    after restart       │
 └────────────────────────┘
 
-State files (~/.ccbot/):
+State files (./.oobot/ by default):
   state.json         ─ thread bindings + window states + read offsets
   session_map.json   ─ hook-generated window→session mapping
-  monitor_state.json ─ poll progress (byte offset) per JSONL file
+  monitor_state.json ─ poll progress (storage cursor / byte offset)
 ```
 
 **Key design decisions:**
 - **Topic-centric** — Each Telegram topic binds to one tmux window. No centralized session list; topics *are* the session list.
 - **Window-centric** — All state anchored to tmux window names (e.g. `myproject`), not directories. Same directory can have multiple windows (auto-suffixed: `myproject-2`).
-- **Hook-based session tracking** — Claude Code `SessionStart` hook writes `session_map.json`; monitor reads it each poll cycle to auto-detect session changes.
+- **Plugin-based session tracking** — OpenCode `session.created` bridge writes `session_map.json`; monitor reads it each poll cycle to auto-detect session changes.
 - **Tool use ↔ tool result pairing** — `tool_use_id` tracked across poll cycles; tool result edits the original tool_use Telegram message in-place.
 - **MarkdownV2 with fallback** — All messages go through `safe_reply`/`safe_edit`/`safe_send` which convert via `telegramify-markdown` and fall back to plain text on parse failure.
 - **No truncation at parse layer** — Full content preserved; splitting at send layer respects Telegram's 4096 char limit with expandable quote atomicity.

@@ -1,7 +1,7 @@
 """Application entry point — CLI dispatcher and bot bootstrap.
 
 Handles two execution modes:
-  1. `ccbot hook` — delegates to hook.hook_main() for Claude Code hook processing.
+  1. `oobot hook` — delegates to hook.hook_main() for OpenCode hook processing.
   2. Default — configures logging, initializes tmux session, and starts the
      Telegram bot polling loop via bot.create_bot().
 """
@@ -22,7 +22,7 @@ def main() -> None:
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         level=logging.WARNING,
     )
-    logging.getLogger("ccbot").setLevel(logging.DEBUG)
+    logging.getLogger("oobot").setLevel(logging.DEBUG)
     logger = logging.getLogger(__name__)
 
     # Import after logging is configured — Config() validates env vars
@@ -30,7 +30,8 @@ def main() -> None:
     from .tmux_manager import tmux_manager
 
     logger.info("Allowed users: %s", config.allowed_users)
-    logger.info("Claude projects path: %s", config.claude_projects_path)
+    logger.info("OpenCode projects path: %s", config.opencode_projects_path)
+    logger.info("OpenCode storage path: %s", config.opencode_storage_path)
 
     # Ensure tmux session exists
     session = tmux_manager.get_or_create_session()

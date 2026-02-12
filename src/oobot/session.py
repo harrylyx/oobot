@@ -1,13 +1,13 @@
-"""Claude Code session management — the core state hub.
+"""OpenCode session management — the core state hub.
 
 Manages the key mappings:
-  Window→Session (window_states): which Claude session_id a window holds.
+  Window→Session (window_states): which OpenCode session_id a window holds.
   User→Thread→Window (thread_bindings): topic-to-window bindings (1 topic = 1 window).
 
 Responsibilities:
-  - Persist/load state to ~/.ccbot/state.json.
+  - Persist/load state to ./.oobot/state.json.
   - Sync window↔session bindings from session_map.json (written by hook).
-  - Resolve window names to ClaudeSession objects (JSONL file reading).
+  - Resolve window names to OpenCodeSession objects (storage/JSONL backends).
   - Track per-user read offsets for unread-message detection.
   - Manage thread↔window bindings for Telegram topic routing.
   - Send keystrokes to tmux windows and retrieve message history.
@@ -44,7 +44,7 @@ class WindowState:
     """Persistent state for a tmux window.
 
     Attributes:
-        session_id: Associated Claude session ID (empty if not yet detected)
+        session_id: Associated OpenCode session ID (empty if not yet detected)
         cwd: Working directory for direct file path construction
     """
 
@@ -66,8 +66,8 @@ class WindowState:
 
 
 @dataclass
-class ClaudeSession:
-    """Information about a Claude Code session."""
+class OpenCodeSession:
+    """Information about a OpenCode session."""
 
     session_id: str
     summary: str
@@ -81,7 +81,6 @@ class ClaudeSession:
         return self.summary
 
 
-
 @dataclass
 class UnreadInfo:
     """Information about unread messages for a user's window."""
@@ -93,7 +92,7 @@ class UnreadInfo:
 
 @dataclass
 class SessionManager:
-    """Manages session state for Claude Code.
+    """Manages session state for OpenCode.
 
     window_states: window_name -> WindowState (session_id)
     user_window_offsets: user_id -> {window_name -> byte_offset}
@@ -124,12 +123,9 @@ class SessionManager:
 
     def _save_state(self) -> None:
         state = {
-            "window_states": {
-                k: v.to_dict() for k, v in self.window_states.items()
-            },
+            "window_states": {k: v.to_dict() for k, v in self.window_states.items()},
             "user_window_offsets": {
-                str(uid): offsets
-                for uid, offsets in self.user_window_offsets.items()
+                str(uid): offsets for uid, offsets in self.user_window_offsets.items()
             },
             "thread_bindings": {
                 str(uid): {str(tid): wname for tid, wname in bindings.items()}
@@ -172,7 +168,11 @@ class SessionManager:
 
         Returns True if the entry was found within timeout, False otherwise.
         """
-        logger.debug("Waiting for session_map entry: window=%s, timeout=%.1f", window_name, timeout)
+        logger.debug(
+            "Waiting for session_map entry: window=%s, timeout=%.1f",
+            window_name,
+            timeout,
+        )
         key = f"{config.tmux_session_name}:{window_name}"
         deadline = asyncio.get_event_loop().time() + timeout
         while asyncio.get_event_loop().time() < deadline:
@@ -184,13 +184,17 @@ class SessionManager:
                     info = session_map.get(key, {})
                     if info.get("session_id"):
                         # Found — load into window_states immediately
-                        logger.debug("session_map entry found for window %s", window_name)
+                        logger.debug(
+                            "session_map entry found for window %s", window_name
+                        )
                         await self.load_session_map()
                         return True
             except (json.JSONDecodeError, OSError):
                 pass
             await asyncio.sleep(interval)
-        logger.warning("Timed out waiting for session_map entry: window=%s", window_name)
+        logger.warning(
+            "Timed out waiting for session_map entry: window=%s", window_name
+        )
         return False
 
     async def load_session_map(self) -> None:
@@ -217,7 +221,7 @@ class SessionManager:
             # Only process entries for our tmux session
             if not key.startswith(prefix):
                 continue
-            window_name = key[len(prefix):]
+            window_name = key[len(prefix) :]
             valid_windows.add(window_name)
             new_sid = info.get("session_id", "")
             new_cwd = info.get("cwd", "")
@@ -262,20 +266,20 @@ class SessionManager:
         """Build the direct file path for a session from session_id and cwd."""
         if not session_id or not cwd:
             return None
-        # Encode cwd: /data/code/ccbot -> -data-code-ccbot
+        # Encode cwd: /data/code/oobot -> -data-code-oobot
         encoded_cwd = cwd.replace("/", "-")
-        return config.claude_projects_path / encoded_cwd / f"{session_id}.jsonl"
+        return config.opencode_projects_path / encoded_cwd / f"{session_id}.jsonl"
 
     async def _get_session_direct(
         self, session_id: str, cwd: str
-    ) -> ClaudeSession | None:
-        """Get a ClaudeSession directly from session_id and cwd (no scanning)."""
+    ) -> OpenCodeSession | None:
+        """Get a OpenCodeSession directly from session_id and cwd (no scanning)."""
         file_path = self._build_session_file_path(session_id, cwd)
 
         # Fallback: glob search if direct path doesn't exist
         if not file_path or not file_path.exists():
             pattern = f"*/{session_id}.jsonl"
-            matches = list(config.claude_projects_path.glob(pattern))
+            matches = list(config.opencode_projects_path.glob(pattern))
             if matches:
                 file_path = matches[0]
                 logger.debug(f"Found session via glob: {file_path}")
@@ -313,7 +317,7 @@ class SessionManager:
         if not summary:
             summary = last_user_msg[:50] if last_user_msg else "Untitled"
 
-        return ClaudeSession(
+        return OpenCodeSession(
             session_id=session_id,
             summary=summary,
             message_count=message_count,
@@ -322,8 +326,10 @@ class SessionManager:
 
     # --- Window → Session resolution ---
 
-    async def resolve_session_for_window(self, window_name: str) -> ClaudeSession | None:
-        """Resolve a tmux window to the best matching Claude session.
+    async def resolve_session_for_window(
+        self, window_name: str
+    ) -> OpenCodeSession | None:
+        """Resolve a tmux window to the best matching OpenCode session.
 
         Uses persisted session_id + cwd to construct file path directly.
         Returns None if no session is associated with this window.
@@ -337,7 +343,16 @@ class SessionManager:
         if session:
             return session
 
-        # File no longer exists, clear state
+        # For OpenCode storage backend (no JSONL), keep mapping and return lightweight session
+        if config.opencode_storage_path.exists():
+            return OpenCodeSession(
+                session_id=state.session_id,
+                summary="",
+                message_count=0,
+                file_path="",
+            )
+
+        # Legacy JSONL backend: file no longer exists, clear state
         logger.warning(
             f"Session file no longer exists for window {window_name} "
             f"(sid={state.session_id}, cwd={state.cwd})"
@@ -456,7 +471,9 @@ class SessionManager:
         return dict(self.thread_bindings.get(user_id, {}))
 
     def resolve_window_for_thread(
-        self, user_id: int, thread_id: int | None,
+        self,
+        user_id: int,
+        thread_id: int | None,
     ) -> str | None:
         """Resolve the tmux window for a user's thread.
 
@@ -477,7 +494,8 @@ class SessionManager:
                 yield user_id, thread_id, window_name
 
     async def find_users_for_session(
-        self, session_id: str,
+        self,
+        session_id: str,
     ) -> list[tuple[int, str, int]]:
         """Find all users whose thread-bound window maps to the given session_id.
 
@@ -485,8 +503,8 @@ class SessionManager:
         """
         result: list[tuple[int, str, int]] = []
         for user_id, thread_id, window_name in self.iter_thread_bindings():
-            resolved = await self.resolve_session_for_window(window_name)
-            if resolved and resolved.session_id == session_id:
+            state = self.get_window_state(window_name)
+            if state.session_id == session_id:
                 result.append((user_id, window_name, thread_id))
         return result
 

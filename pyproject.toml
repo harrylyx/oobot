@@ -1,7 +1,7 @@
 [project]
-name = "ccbot"
+name = "oobot"
 version = "0.1.0"
-description = "Telegram Bot for monitoring Claude Code sessions"
+description = "Telegram Bot for monitoring OpenCode sessions"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-ccbot = "ccbot.main:main"
+oobot = "oobot.main:main"
 
 [project.optional-dependencies]
 dev = [
@@ -27,4 +27,4 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/ccbot"]
+packages = ["src/oobot"]

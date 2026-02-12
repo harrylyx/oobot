@@ -1,7 +1,7 @@
 """Tmux session/window management via libtmux.
 
 Wraps libtmux to provide async-friendly operations on a single tmux session:
-  - list_windows / find_window_by_name: discover Claude Code windows.
+  - list_windows / find_window_by_name: discover OpenCode windows.
   - capture_pane: read terminal content (plain or with ANSI colors).
   - send_keys: forward user input or control keys to a window.
   - create_window / kill_window: lifecycle management.
@@ -36,7 +36,7 @@ class TmuxWindow:
 
 
 class TmuxManager:
-    """Manages tmux windows for Claude Code sessions."""
+    """Manages tmux windows for OpenCode sessions."""
 
     def __init__(self, session_name: str | None = None):
         """Initialize tmux manager.
@@ -201,7 +201,7 @@ class TmuxManager:
         """
         if literal and enter:
             # Split into text + delay + Enter via libtmux.
-            # Claude Code's TUI sometimes interprets a rapid-fire Enter
+            # OpenCode's TUI sometimes interprets a rapid-fire Enter
             # (arriving in the same input batch as the text) as a newline
             # rather than submit.  A 500ms gap lets the TUI process the
             # text before receiving Enter.
@@ -298,14 +298,14 @@ class TmuxManager:
         self,
         work_dir: str,
         window_name: str | None = None,
-        start_claude: bool = True,
+        start_opencode: bool = True,
     ) -> tuple[bool, str, str]:
-        """Create a new tmux window and optionally start Claude Code.
+        """Create a new tmux window and optionally start OpenCode.
 
         Args:
             work_dir: Working directory for the new window
             window_name: Optional window name (defaults to directory name)
-            start_claude: Whether to start claude command
+            start_opencode: Whether to start opencode command
 
         Returns:
             Tuple of (success, message, window_name)
@@ -337,11 +337,11 @@ class TmuxManager:
                     start_directory=str(path),
                 )
 
-                # Start Claude Code if requested
-                if start_claude:
+                # Start OpenCode if requested
+                if start_opencode:
                     pane = window.active_pane
                     if pane:
-                        pane.send_keys(config.claude_command, enter=True)
+                        pane.send_keys(config.opencode_command, enter=True)
 
                 logger.info("Created window '%s' at %s", final_window_name, path)
                 return True, f"Created window '{final_window_name}' at {path}", final_window_name

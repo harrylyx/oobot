@@ -1,42 +1,49 @@
-# CCBot
+# OOBot
 
-通过 Telegram 远程控制 Claude Code 会话 — 监控、交互、管理运行在 tmux 中的 AI 编程会话。
+通过 Telegram 远程控制 OpenCode 会话 — 监控、交互、管理运行在 tmux 中的 AI 编程会话。
+
+> 本项目基于 [ccbot](https://github.com/six-ddc/ccbot) 修改并持续演进，适配 OpenCode 工作流。
 
 https://github.com/user-attachments/assets/15ffb38e-5eb9-4720-93b9-412e4961dc93
 
-## 为什么做 CCBot？
+## 为什么做 OOBot？
 
-Claude Code 运行在终端里。当你离开电脑 — 通勤路上、躺在沙发上、或者只是不在工位 — 会话仍在继续，但你失去了查看和控制的能力。
+OpenCode 运行在终端里。当你离开电脑 — 通勤路上、躺在沙发上、或者只是不在工位 — 会话仍在继续，但你失去了查看和控制的能力。
 
-CCBot 让你**通过 Telegram 无缝接管同一个会话**。核心设计思路是：它操作的是 **tmux**，而不是 Claude Code SDK。你的 Claude Code 进程始终在 tmux 窗口里运行，CCBot 只是读取它的输出并向它发送按键。这意味着：
+OOBot 让你**通过 Telegram 无缝接管同一个会话**。核心设计思路是：它操作的是 **tmux**，而不是 OpenCode SDK。你的 OpenCode 进程始终在 tmux 窗口里运行，OOBot 只是读取它的输出并向它发送按键。这意味着：
 
-- **从电脑无缝切换到手机** — Claude 正在执行重构？走开就是了，继续在 Telegram 上监控和回复。
+- **从电脑无缝切换到手机** — OpenCode 正在执行重构？走开就是了，继续在 Telegram 上监控和回复。
 - **随时切换回电脑** — tmux 会话从未中断，直接 `tmux attach` 就能回到终端，完整的滚动历史和上下文都在。
 - **并行运行多个会话** — 每个 Telegram 话题对应一个独立的 tmux 窗口，一个聊天组里就能管理多个项目。
 
-市面上其他 Claude Code Telegram Bot 通常封装 Claude Code SDK 来创建独立的 API 会话，这些会话是隔离的 — 你无法在终端里恢复它们。CCBot 采取了不同的方式：它只是 tmux 之上的一个薄控制层，终端始终是数据源，你永远不会失去切换回去的能力。
+市面上其他 OpenCode Telegram Bot 通常封装 OpenCode SDK 来创建独立的 API 会话，这些会话是隔离的 — 你无法在终端里恢复它们。OOBot 采取了不同的方式：它只是 tmux 之上的一个薄控制层，终端始终是数据源，你永远不会失去切换回去的能力。
 
-实际上，CCBot 自身就是用这种方式开发的 — 通过 CCBot 在 Telegram 上监控和驱动 Claude Code 会话来迭代自身。
+实际上，OOBot 自身就是用这种方式开发的 — 通过 OOBot 在 Telegram 上监控和驱动 OpenCode 会话来迭代自身。
 
 ## 功能特性
 
-- **基于话题的会话** — 每个 Telegram 话题 1:1 映射到一个 tmux 窗口和 Claude 会话
+- **基于话题的会话** — 每个 Telegram 话题 1:1 映射到一个 tmux 窗口和 OpenCode 会话
 - **实时通知** — 接收助手回复、思考过程、工具调用/结果、本地命令输出的 Telegram 消息
 - **交互式 UI** — 通过内联键盘操作 AskUserQuestion、ExitPlanMode 和权限提示
-- **发送消息** — 通过 tmux 按键将文字转发给 Claude Code
-- **斜杠命令转发** — 任何 `/command` 直接发送给 Claude Code（如 `/clear`、`/compact`、`/cost`）
-- **创建新会话** — 通过目录浏览器从 Telegram 启动 Claude Code 会话
+- **发送消息** — 通过 tmux 按键将文字转发给 OpenCode
+- **文件传输** — 将 Telegram 文档上传到绑定项目目录，并通过 `/download` 下载文件
+- **斜杠命令转发** — 任何 `/command` 直接发送给 OpenCode（如 `/clear`、`/compact`、`/cost`）
+- **移动端快捷键** — 使用 `/keys` 打开快捷面板，一键触发常用 OpenCode 命令和按键
+- **创建新会话** — 通过目录浏览器从 Telegram 启动 OpenCode 会话
 - **关闭会话** — 关闭话题自动终止关联的 tmux 窗口
 - **消息历史** — 分页浏览对话历史（默认显示最新）
-- **Hook 会话追踪** — 通过 `SessionStart` hook 自动关联 tmux 窗口与 Claude 会话
+- **插件桥接会话追踪** — 通过 `session.created` 事件桥接自动关联 tmux 窗口与 OpenCode 会话
 - **持久化状态** — 话题绑定和读取偏移量在重启后保持
 
 ## 安装
 
 ```bash
-cd ccbot
+cd oobot
 uv sync
 ```
+
+请始终通过 `uv` 使用项目虚拟环境（`uv run ...`），避免使用全局 `python`/`pip` 安装以免污染环境。
+本机建议用 `pyenv` 管理 Python 版本，再用 `uv` 管理虚拟环境和依赖（例如先 `pyenv version`，再 `uv sync`）。
 
 ## 配置
 
@@ -53,6 +60,8 @@ uv sync
 cp .env.example .env
 ```
 
+`oobot` 会从当前项目目录（你运行命令的位置）读取 `.env`。
+
 **必填项：**
 
 | 变量 | 说明 |
@@ -64,13 +73,16 @@ cp .env.example .env
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `TMUX_SESSION_NAME` | `ccbot` | tmux 会话名称 |
-| `CLAUDE_COMMAND` | `claude` | 新窗口中运行的命令 |
+| `OOBOT_DIR` | `./.oobot` | 配置/状态目录 |
+| `TMUX_SESSION_NAME` | `oobot` | tmux 会话名称 |
+| `OPENCODE_COMMAND` | `opencode` | 新窗口中运行的命令 |
+| `OPENCODE_STORAGE_PATH` | `~/.local/share/opencode/storage` | OpenCode 存储后端路径 |
+| `OPENCODE_PROJECTS_PATH` | `~/.opencode/projects` | 旧版 OpenCode JSONL 路径 |
 | `MONITOR_POLL_INTERVAL` | `2.0` | 轮询间隔（秒） |
 
 > 如果在 VPS 上运行且没有交互终端来批准权限，可以考虑：
 > ```
-> CLAUDE_COMMAND=IS_SANDBOX=1 claude --dangerously-skip-permissions
+> OPENCODE_COMMAND=IS_SANDBOX=1 opencode --dangerously-skip-permissions
 > ```
 
 ## Hook 设置（推荐）
@@ -78,29 +90,18 @@ cp .env.example .env
 通过 CLI 自动安装：
 
 ```bash
-ccbot hook --install
+uv run oobot hook --install
 ```
 
-或手动添加到 `~/.claude/settings.json`：
+该命令会安装一个插件桥接文件：`~/.config/opencode/plugins/oobot-session-map.js`。
+当前 OpenCode 配置 schema 不接受顶层 `hooks` 字段。
 
-```json
-{
-  "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [{ "type": "command", "command": "ccbot hook", "timeout": 5 }]
-      }
-    ]
-  }
-}
-```
-
-Hook 会将窗口-会话映射写入 `~/.ccbot/session_map.json`，这样 Bot 就能自动追踪每个 tmux 窗口中运行的 Claude 会话 — 即使在 `/clear` 或会话重启后也能保持关联。
+Hook 会将窗口-会话映射写入 `$OOBOT_DIR/session_map.json`（默认 `./.oobot/session_map.json`），这样 Bot 就能自动追踪每个 tmux 窗口中运行的 OpenCode 会话 — 即使在 `/clear` 或会话重启后也能保持关联。
 
 ## 使用方法
 
 ```bash
-uv run ccbot
+uv run oobot
 ```
 
 ### 命令
@@ -112,19 +113,29 @@ uv run ccbot
 | `/start` | 显示欢迎消息 |
 | `/history` | 当前话题的消息历史 |
 | `/screenshot` | 截取终端屏幕 |
-| `/esc` | 发送 Escape 键中断 Claude |
+| `/keys` | 显示移动端快捷键面板 |
+| `/esc` | 发送 Escape 键中断 OpenCode |
+| `/pwd` | 显示当前项目目录 |
+| `/ls` | 列出当前项目文件 |
+| `/download` | 从项目目录下载文件 |
 
-**Claude Code 命令（通过 tmux 转发）：**
+**OpenCode 命令（通过 tmux 转发）：**
 
 | 命令 | 说明 |
 |---|---|
 | `/clear` | 清除对话历史 |
 | `/compact` | 压缩对话上下文 |
 | `/cost` | 显示 Token/费用统计 |
-| `/help` | 显示 Claude Code 帮助 |
-| `/memory` | 编辑 CLAUDE.md |
+| `/help` | 显示 OpenCode 帮助 |
+| `/memory` | 编辑记忆文件 |
 
-其他未识别的 `/command` 也会原样转发给 Claude Code（如 `/review`、`/doctor`、`/init`）。
+其他未识别的 `/command` 也会原样转发给 OpenCode（如 `/review`、`/doctor`、`/init`）。
+
+### 文件上传 / 下载
+
+- 上传：在已绑定话题里发送 Telegram **文档**，OOBot 会保存到当前项目目录。
+- 指定上传路径：可在文档 caption 中写 `src/data/input.json`（或 `/upload src/data/input.json`）。
+- 下载：在话题内执行 `/download 相对路径/文件名`。
 
 ### 话题工作流
 
@@ -135,11 +146,11 @@ uv run ccbot
 1. 在 Telegram 群组中创建新话题
 2. 在话题中发送任意消息
 3. 弹出目录浏览器 — 选择项目目录
-4. 自动创建 tmux 窗口，启动 `claude`，并转发待处理的消息
+4. 自动创建 tmux 窗口，启动 `opencode`，并转发待处理的消息
 
 **发送消息：**
 
-话题绑定会话后，直接在话题中发送文字即可 — 文字会通过 tmux 按键转发给 Claude Code。
+话题绑定会话后，直接在话题中发送文字即可 — 文字会通过 tmux 按键转发给 OpenCode。
 
 **关闭会话：**
 
@@ -166,14 +177,14 @@ uv run ccbot
 ### 通知
 
 监控器每 2 秒轮询会话 JSONL 文件，并发送以下通知：
-- **助手回复** — Claude 的文字回复
+- **助手回复** — OpenCode 的文字回复
 - **思考过程** — 以可展开引用块显示
 - **工具调用/结果** — 带统计摘要（如 "Read 42 lines"、"Found 5 matches"）
 - **本地命令输出** — 命令的标准输出（如 `git status`），前缀为 `❯ command_name`
 
 通知发送到绑定了该会话窗口的话题中。
 
-## 在 tmux 中运行 Claude Code
+## 在 tmux 中运行 OpenCode
 
 ### 方式一：通过 Telegram 创建（推荐）
 
@@ -184,20 +195,20 @@ uv run ccbot
 ### 方式二：手动创建
 
 ```bash
-tmux attach -t ccbot
+tmux attach -t oobot
 tmux new-window -n myproject -c ~/Code/myproject
-# 在新窗口中启动 Claude Code
-claude
+# 在新窗口中启动 OpenCode
+opencode
 ```
 
-窗口必须在 `ccbot` tmux 会话中（可通过 `TMUX_SESSION_NAME` 配置）。Claude 启动时 Hook 会自动将其注册到 `session_map.json`。
+窗口必须在 `oobot` tmux 会话中（可通过 `TMUX_SESSION_NAME` 配置）。OpenCode 启动时 Hook 会自动将其注册到 `session_map.json`。
 
 ## 架构概览
 
 ```
 ┌─────────────┐      ┌─────────────┐      ┌─────────────┐
 │  Topic ID   │ ───▶ │ Window Name │ ───▶ │ Session ID  │
-│  (Telegram) │      │   (tmux)    │      │  (Claude)   │
+│  (Telegram) │      │   (tmux)    │      │  (OpenCode) │
 └─────────────┘      └─────────────┘      └─────────────┘
      thread_bindings      session_map.json
      (state.json)         (由 hook 写入)
@@ -206,7 +217,7 @@ claude
 **核心设计思路：**
 - **话题为中心** — 每个 Telegram 话题绑定一个 tmux 窗口，话题就是会话列表
 - **窗口为中心** — 所有状态以 tmux 窗口名称为锚点（如 `myproject`），同一目录可有多个窗口（自动后缀：`myproject-2`）
-- **基于 Hook 的会话追踪** — Claude Code 的 `SessionStart` Hook 写入 `session_map.json`；监控器每次轮询读取它以自动检测会话变化
+- **基于插件桥接的会话追踪** — OpenCode 的 `session.created` 事件桥接写入 `session_map.json`；监控器每次轮询读取它以自动检测会话变化
 - **工具调用配对** — `tool_use_id` 跨轮询周期追踪；工具结果直接编辑原始的工具调用 Telegram 消息
 - **MarkdownV2 + 降级** — 所有消息通过 `telegramify-markdown` 转换，解析失败时降级为纯文本
 - **解析层不截断** — 完整保留内容；发送层按 Telegram 4096 字符限制拆分
@@ -215,15 +226,16 @@ claude
 
 | 路径 | 说明 |
 |---|---|
-| `~/.ccbot/state.json` | 话题绑定、窗口状态、每用户读取偏移量 |
-| `~/.ccbot/session_map.json` | Hook 生成的 `{tmux_session:window_name: {session_id, cwd}}` 映射 |
-| `~/.ccbot/monitor_state.json` | 每会话的监控字节偏移量（防止重复通知） |
-| `~/.claude/projects/` | Claude Code 会话数据（只读） |
+| `$OOBOT_DIR/state.json` | 话题绑定、窗口状态、每用户读取偏移量 |
+| `$OOBOT_DIR/session_map.json` | Hook 生成的 `{tmux_session:window_name: {session_id, cwd}}` 映射 |
+| `$OOBOT_DIR/monitor_state.json` | 每会话的监控字节偏移量（防止重复通知） |
+| `~/.local/share/opencode/storage/` | OpenCode 会话数据（当前格式，只读） |
+| `~/.opencode/projects/` | OpenCode 会话数据（旧版 JSONL 格式，只读） |
 
 ## 文件结构
 
 ```
-src/ccbot/
+src/oobot/
 ├── __init__.py            # 包入口
 ├── main.py                # CLI 调度器（hook 子命令 + bot 启动）
 ├── hook.py                # Hook 子命令，用于会话追踪（+ --install）
@@ -232,7 +244,7 @@ src/ccbot/
 ├── session.py             # 会话管理、状态持久化、消息历史
 ├── session_monitor.py     # JSONL 文件监控（轮询 + 变更检测）
 ├── monitor_state.py       # 监控状态持久化（字节偏移量）
-├── transcript_parser.py   # Claude Code JSONL 对话记录解析
+├── transcript_parser.py   # OpenCode JSONL 对话记录解析
 ├── terminal_parser.py     # 终端面板解析（交互式 UI + 状态行）
 ├── markdown_v2.py         # Markdown → Telegram MarkdownV2 转换
 ├── telegram_sender.py     # 消息拆分 + 同步 HTTP 发送

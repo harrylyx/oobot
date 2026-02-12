@@ -108,7 +108,7 @@
 
 ---
 
-## 2. Feature Implementation Status in ccbot
+## 2. Feature Implementation Status in oobot
 
 ### Already Implemented
 
@@ -121,10 +121,10 @@
 | **editMessageText** | ✅ | Status-to-content conversion, tool_result editing into tool_use messages |
 | **editMessageMedia** | ✅ | Screenshot refresh replaces image in-place |
 | **deleteMessage** | ✅ | Status message cleanup, interactive UI cleanup |
-| **BotCommand + set_my_commands** | ✅ | 10 commands registered: /start, /list, /history, /screenshot, /esc + 5 Claude Code forwards |
+| **BotCommand + set_my_commands** | ✅ | 10 commands registered: /start, /list, /history, /screenshot, /esc + 5 OpenCode forwards |
 | **sendDocument** | ✅ | Screenshots sent as PNG documents |
 | **ReplyKeyboardRemove** | ✅ | Used when switching away from reply keyboard |
-| **Claude Code command forwarding** | ✅ | /clear, /compact, /cost, /help, /memory forwarded to tmux |
+| **OpenCode command forwarding** | ✅ | /clear, /compact, /cost, /help, /memory forwarded to tmux |
 | **Message rate limiting** | ✅ | 1.1s minimum interval per user to avoid flood control |
 | **Per-user message queues** | ✅ | FIFO ordering, content/status task separation, message merging |
 | **Status message deduplication** | ✅ | Skip edit if status text unchanged |
@@ -133,41 +133,41 @@
 
 | # | Feature | Impact | Effort | Notes |
 |---|---------|--------|--------|-------|
-| 1 | **sendMessageDraft (streaming)** | High | Medium | Stream Claude's responses progressively instead of waiting for complete messages. Bot API 9.3+ required. Would significantly improve perceived responsiveness |
-| 2 | **Expandable blockquote for thinking** | Medium | Low | Wrap Claude's thinking/reasoning in `<blockquote expandable>` for cleaner layout. Replaces spoiler approach — better UX since content is visible on tap without losing context |
+| 1 | **sendMessageDraft (streaming)** | High | Medium | Stream OpenCode's responses progressively instead of waiting for complete messages. Bot API 9.3+ required. Would significantly improve perceived responsiveness |
+| 2 | **Expandable blockquote for thinking** | Medium | Low | Wrap OpenCode's thinking/reasoning in `<blockquote expandable>` for cleaner layout. Replaces spoiler approach — better UX since content is visible on tap without losing context |
 | 3 | **reply_parameters with quote** | Medium | Low | Quote the specific user message when replying, providing clear message association |
 | 4 | **copy_text button** | Medium | Low | Add "Copy" button to code block messages for one-tap clipboard copy |
-| 5 | **link_preview_options** | Low | Low | Disable or minimize link previews in Claude's responses to reduce visual noise |
+| 5 | **link_preview_options** | Low | Low | Disable or minimize link previews in OpenCode's responses to reduce visual noise |
 | 6 | **message_effect_id** | Low | Low | Add subtle animation effects on completion or error messages |
 | 7 | **Forum Topics in Private Chat** | Medium | High | Organize per-session conversations as topics in a single private chat instead of interleaving |
-| 8 | **Checklists** | Low | Medium | Display Claude's task lists as native Telegram checklists |
+| 8 | **Checklists** | Low | Medium | Display OpenCode's task lists as native Telegram checklists |
 | 9 | **WebApp dashboard** | Medium | High | Real-time terminal view, session management UI via Mini App |
 | 10 | **pinChatMessage** | Low | Low | Pin summary or active session info |
 
 ---
 
-## 3. Claude Code Slash Commands
+## 3. OpenCode Slash Commands
 
-### Currently Forwarded by ccbot
+### Currently Forwarded by oobot
 
-These 5 commands are registered in the Telegram bot menu and forwarded to Claude Code via tmux:
+These 5 commands are registered in the Telegram bot menu and forwarded to OpenCode via tmux:
 
 | Command | Bot Menu Description | Function |
 |---------|---------------------|----------|
-| `/clear` | ↗ Clear conversation history | Wipes conversation, starts fresh. ccbot also clears session association |
+| `/clear` | ↗ Clear conversation history | Wipes conversation, starts fresh. oobot also clears session association |
 | `/compact` | ↗ Compact conversation context | Summarize/compress context to free token budget. Supports optional instructions |
 | `/cost` | ↗ Show token/cost usage | Display token counts and API cost for current session |
-| `/help` | ↗ Show Claude Code help | List available commands and usage help |
-| `/memory` | ↗ Edit CLAUDE.md | Open CLAUDE.md for editing project instructions |
+| `/help` | ↗ Show OpenCode help | List available commands and usage help |
+| `/memory` | ↗ Edit memory file | Open OPENCODE.md for editing project instructions |
 
-### Other Claude Code Commands (Full Reference)
+### Other OpenCode Commands (Full Reference)
 
 | Command | Parameterless | Interactive | Suitable for Telegram | Notes |
 |---------|:---:|:---:|:---:|-------|
 | `/context` | ✅ | No | ✅ Recommended | Show context window usage. Useful for monitoring |
 | `/status` | ✅ | No | ✅ Possible | Show project/session status |
 | `/review` | ✅ | No | ⚠️ Caution | Starts code review — may produce very long output |
-| `/init` | ✅ | Possibly | ⚠️ Caution | Initialize CLAUDE.md — may prompt for confirmation |
+| `/init` | ✅ | Possibly | ⚠️ Caution | Initialize memory file — may prompt for confirmation |
 | `/doctor` | ✅ | No | ⚠️ Caution | Diagnose environment — output can be lengthy |
 | `/stats` | ✅ | No | ❌ No | Shows terminal graphs/charts, not renderable via Telegram |
 | `/rewind` | No | Yes (selection) | ❌ No | Interactive message selector — requires terminal UI |
@@ -181,7 +181,7 @@ These 5 commands are registered in the Telegram bot menu and forwarded to Claude
 
 ### Recommendations for Additional Forwarding
 
-Consider adding `/context` to CC_COMMANDS — it is parameterless, non-interactive, and provides useful context window usage info that complements `/cost`.
+Consider adding `/context` to OC_COMMANDS — it is parameterless, non-interactive, and provides useful context window usage info that complements `/cost`.
 
 ---
 

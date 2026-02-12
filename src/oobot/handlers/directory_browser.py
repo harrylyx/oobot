@@ -2,7 +2,7 @@
 
 Provides a visual directory browser in Telegram for:
   - Navigating directory hierarchies
-  - Selecting a working directory for new Claude sessions
+  - Selecting a working directory for new OpenCode sessions
   - Paginated display of subdirectories
 
 Key components:

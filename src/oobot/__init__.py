@@ -1,4 +1,4 @@
-"""CCBot - Telegram Bot for managing Claude Code sessions via tmux.
+"""oobot - Telegram Bot for managing OpenCode sessions via tmux.
 
 Package entry point. Exports the version string only; all functional
 modules are imported lazily by main.py to keep startup fast.

@@ -1,12 +1,15 @@
-"""Session monitoring service — watches JSONL files for new messages.
+"""Session monitoring service — watches OpenCode transcripts for new messages.
 
 Runs an async polling loop that:
   1. Loads the current session_map to know which sessions to watch.
   2. Detects session_map changes (new/changed/deleted windows) and cleans up.
-  3. Reads new JSONL lines from each session file using byte-offset tracking.
+  3. Reads new transcript content using either:
+     - storage backend (`~/.local/share/opencode/storage`), or
+     - legacy JSONL backend (`~/.opencode/projects`).
   4. Parses entries via TranscriptParser and emits NewMessage objects to a callback.
 
-Optimizations: mtime cache skips unchanged files; byte offset avoids re-reading.
+Optimizations: mtime cache skips unchanged files; monitor cursors avoid
+re-reading.
 
 Key classes: SessionMonitor, NewMessage, SessionInfo.
 """
@@ -33,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class SessionInfo:
-    """Information about a Claude Code session."""
+    """Information about a OpenCode session."""
 
     session_id: str
     file_path: Path
@@ -53,7 +56,7 @@ class NewMessage:
 
 
 class SessionMonitor:
-    """Monitors Claude Code sessions for new assistant messages.
+    """Monitors OpenCode sessions for new assistant messages.
 
     Uses simple async polling with aiofiles for non-blocking I/O.
     Emits both intermediate and complete assistant messages.
@@ -65,12 +68,17 @@ class SessionMonitor:
         poll_interval: float | None = None,
         state_file: Path | None = None,
     ):
-        self.projects_path = projects_path if projects_path is not None else config.claude_projects_path
-        self.poll_interval = poll_interval if poll_interval is not None else config.monitor_poll_interval
-
-        self.state = MonitorState(
-            state_file=state_file or config.monitor_state_file
+        self.projects_path = (
+            projects_path
+            if projects_path is not None
+            else config.opencode_projects_path
         )
+        self.storage_path = config.opencode_storage_path
+        self.poll_interval = (
+            poll_interval if poll_interval is not None else config.monitor_poll_interval
+        )
+
+        self.state = MonitorState(state_file=state_file or config.monitor_state_file)
         self.state.load()
 
         self._running = False
@@ -144,10 +152,12 @@ class SessionMonitor:
                         indexed_ids.add(session_id)
                         file_path = Path(full_path)
                         if file_path.exists():
-                            sessions.append(SessionInfo(
-                                session_id=session_id,
-                                file_path=file_path,
-                            ))
+                            sessions.append(
+                                SessionInfo(
+                                    session_id=session_id,
+                                    file_path=file_path,
+                                )
+                            )
 
                 except (json.JSONDecodeError, OSError) as e:
                     logger.debug(f"Error reading index {index_file}: {e}")
@@ -162,7 +172,9 @@ class SessionMonitor:
                     # Determine project_path for this file
                     file_project_path = original_path
                     if not file_project_path:
-                        file_project_path = await asyncio.to_thread(read_cwd_from_jsonl, jsonl_file)
+                        file_project_path = await asyncio.to_thread(
+                            read_cwd_from_jsonl, jsonl_file
+                        )
                     if not file_project_path:
                         dir_name = project_dir.name
                         if dir_name.startswith("-"):
@@ -176,16 +188,20 @@ class SessionMonitor:
                     if norm_fp not in active_cwds:
                         continue
 
-                    sessions.append(SessionInfo(
-                        session_id=session_id,
-                        file_path=jsonl_file,
-                    ))
+                    sessions.append(
+                        SessionInfo(
+                            session_id=session_id,
+                            file_path=jsonl_file,
+                        )
+                    )
             except OSError as e:
                 logger.debug(f"Error scanning jsonl files in {project_dir}: {e}")
 
         return sessions
 
-    async def _read_new_lines(self, session: TrackedSession, file_path: Path) -> list[dict]:
+    async def _read_new_lines(
+        self, session: TrackedSession, file_path: Path
+    ) -> list[dict]:
         """Read new lines from a session file using byte offset for efficiency.
 
         Detects file truncation (e.g. after /clear) and resets offset.
@@ -224,8 +240,7 @@ class SessionMonitor:
                     elif line.strip():
                         # Partial JSONL line — don't advance offset past it
                         logger.warning(
-                            "Partial JSONL line in session %s, "
-                            "will retry next cycle",
+                            "Partial JSONL line in session %s, will retry next cycle",
                             session.session_id,
                         )
                         break
@@ -239,15 +254,240 @@ class SessionMonitor:
             logger.error("Error reading session file %s: %s", file_path, e)
         return new_entries
 
-    async def check_for_updates(self, active_session_ids: set[str]) -> list[NewMessage]:
-        """Check all sessions for new assistant messages.
+    def _storage_message_dir(self, session_id: str) -> Path:
+        """Return storage/message directory for a session."""
+        return self.storage_path / "message" / session_id
 
-        Reads from last byte offset. Emits both intermediate
-        (stop_reason=null) and complete messages.
+    def _storage_part_dir(self, message_id: str) -> Path:
+        """Return storage/part directory for a message."""
+        return self.storage_path / "part" / message_id
+
+    def _latest_storage_cursor_sync(self, session_id: str) -> tuple[int, str]:
+        """Get latest (created_ms, message_id) cursor for a session.
+
+        Used when a session is first tracked to avoid replaying historical messages.
+        """
+        message_dir = self._storage_message_dir(session_id)
+        if not message_dir.exists():
+            return 0, ""
+
+        latest_created = 0
+        latest_id = ""
+        for msg_file in message_dir.glob("msg_*.json"):
+            try:
+                data = json.loads(msg_file.read_text())
+            except (json.JSONDecodeError, OSError):
+                continue
+
+            role = data.get("role", "")
+            # Assistant message should be complete before being considered consumed.
+            if role == "assistant":
+                completed = data.get("time", {}).get("completed")
+                if not completed:
+                    continue
+            elif role != "user":
+                continue
+
+            msg_id = data.get("id", msg_file.stem)
+            created = int(data.get("time", {}).get("created", 0) or 0)
+            if created > latest_created or (
+                created == latest_created and msg_id > latest_id
+            ):
+                latest_created = created
+                latest_id = msg_id
+
+        return latest_created, latest_id
+
+    def _extract_storage_message_text_sync(
+        self,
+        message_id: str,
+        role: str,
+    ) -> tuple[str, str]:
+        """Extract display text from OpenCode storage parts.
+
+        Returns (text, content_type). content_type is "text" or "thinking".
+        """
+        part_dir = self._storage_part_dir(message_id)
+        if not part_dir.exists():
+            return "", "text"
+
+        parts: list[dict[str, Any]] = []
+        for part_file in part_dir.glob("prt_*.json"):
+            try:
+                part = json.loads(part_file.read_text())
+            except (json.JSONDecodeError, OSError):
+                continue
+            if isinstance(part, dict):
+                parts.append(part)
+
+        def _part_sort_key(part: dict[str, Any]) -> tuple[int, str]:
+            time_data = part.get("time", {})
+            if isinstance(time_data, dict):
+                start = int(time_data.get("start", 0) or 0)
+            else:
+                start = 0
+            return (start, str(part.get("id", "")))
+
+        parts.sort(key=_part_sort_key)
+
+        text_parts: list[str] = []
+        thinking_parts: list[str] = []
+        for part in parts:
+            ptype = part.get("type", "")
+            ptext = part.get("text", "")
+            if not isinstance(ptext, str) or not ptext.strip():
+                continue
+            if ptype == "text":
+                text_parts.append(ptext.strip())
+            elif ptype == "reasoning" and role == "assistant":
+                thinking_parts.append(ptext.strip())
+
+        if text_parts:
+            return "\n".join(text_parts).strip(), "text"
+        if thinking_parts:
+            return "\n".join(thinking_parts).strip(), "thinking"
+        return "", "text"
+
+    def _read_new_storage_messages_sync(
+        self,
+        session_id: str,
+        last_created: int,
+        last_id: str,
+    ) -> tuple[list[NewMessage], int, str]:
+        """Read new messages for a session from OpenCode storage backend."""
+        message_dir = self._storage_message_dir(session_id)
+        if not message_dir.exists():
+            return [], last_created, last_id
+
+        candidates: list[tuple[int, str, dict[str, Any]]] = []
+        for msg_file in message_dir.glob("msg_*.json"):
+            try:
+                data = json.loads(msg_file.read_text())
+            except (json.JSONDecodeError, OSError):
+                continue
+
+            msg_id = str(data.get("id", msg_file.stem))
+            created = int(data.get("time", {}).get("created", 0) or 0)
+            if created < last_created or (
+                created == last_created and msg_id <= last_id
+            ):
+                continue
+            candidates.append((created, msg_id, data))
+
+        candidates.sort(key=lambda item: (item[0], item[1]))
+
+        output: list[NewMessage] = []
+        cursor_created = last_created
+        cursor_id = last_id
+
+        for created, msg_id, data in candidates:
+            role = data.get("role", "")
+
+            if role == "assistant":
+                completed = data.get("time", {}).get("completed")
+                if not completed:
+                    continue
+
+                text, content_type = self._extract_storage_message_text_sync(
+                    msg_id, role
+                )
+                if text:
+                    output.append(
+                        NewMessage(
+                            session_id=session_id,
+                            text=text,
+                            is_complete=True,
+                            content_type=content_type,
+                            role="assistant",
+                        )
+                    )
+
+                cursor_created = created
+                cursor_id = msg_id
+
+            elif role == "user":
+                text, _ = self._extract_storage_message_text_sync(msg_id, role)
+                if text and config.show_user_messages:
+                    output.append(
+                        NewMessage(
+                            session_id=session_id,
+                            text=text,
+                            is_complete=True,
+                            content_type="text",
+                            role="user",
+                        )
+                    )
+
+                cursor_created = created
+                cursor_id = msg_id
+
+        return output, cursor_created, cursor_id
+
+    async def _check_for_updates_storage(
+        self, active_session_ids: set[str]
+    ) -> list[NewMessage]:
+        """Check active sessions using OpenCode storage backend."""
+        new_messages: list[NewMessage] = []
+
+        if not self.storage_path.exists():
+            return new_messages
+
+        for session_id in active_session_ids:
+            tracked = self.state.get_session(session_id)
+            if tracked is None:
+                latest_created, latest_id = await asyncio.to_thread(
+                    self._latest_storage_cursor_sync,
+                    session_id,
+                )
+                tracked = TrackedSession(
+                    session_id=session_id,
+                    file_path=str(self._storage_message_dir(session_id)),
+                    last_event_created=latest_created,
+                    last_event_id=latest_id,
+                )
+                self.state.update_session(tracked)
+                logger.info("Started tracking storage session: %s", session_id)
+                continue
+
+            msgs, cursor_created, cursor_id = await asyncio.to_thread(
+                self._read_new_storage_messages_sync,
+                session_id,
+                tracked.last_event_created,
+                tracked.last_event_id,
+            )
+
+            if msgs:
+                logger.debug(
+                    "Read %d new storage messages for session %s",
+                    len(msgs),
+                    session_id,
+                )
+                new_messages.extend(msgs)
+
+            if (
+                cursor_created != tracked.last_event_created
+                or cursor_id != tracked.last_event_id
+            ):
+                tracked.last_event_created = cursor_created
+                tracked.last_event_id = cursor_id
+                self.state.update_session(tracked)
+
+        self.state.save_if_dirty()
+        return new_messages
+
+    async def check_for_updates(self, active_session_ids: set[str]) -> list[NewMessage]:
+        """Check all sessions for new messages.
+
+        Uses storage backend when available, otherwise legacy JSONL backend.
+        Emits complete parsed messages ready for Telegram delivery.
 
         Args:
             active_session_ids: Set of session IDs currently in session_map
         """
+        # Prefer modern OpenCode storage backend if present.
+        if self.storage_path.exists():
+            return await self._check_for_updates_storage(active_session_ids)
+
         new_messages = []
 
         # Scan projects to get available session files
@@ -291,7 +531,9 @@ class SessionMonitor:
                     continue
 
                 # File changed, read new content from last offset
-                new_entries = await self._read_new_lines(tracked, session_info.file_path)
+                new_entries = await self._read_new_lines(
+                    tracked, session_info.file_path
+                )
                 self._file_mtimes[session_info.session_id] = current_mtime
 
                 if new_entries:
@@ -303,7 +545,8 @@ class SessionMonitor:
                 # Parse new entries using the shared logic, carrying over pending tools
                 carry = self._pending_tools.get(session_info.session_id, {})
                 parsed_entries, remaining = TranscriptParser.parse_entries(
-                    new_entries, pending_tools=carry,
+                    new_entries,
+                    pending_tools=carry,
                 )
                 if remaining:
                     self._pending_tools[session_info.session_id] = remaining
@@ -316,15 +559,17 @@ class SessionMonitor:
                     # Skip user messages unless show_user_messages is enabled
                     if entry.role == "user" and not config.show_user_messages:
                         continue
-                    new_messages.append(NewMessage(
-                        session_id=session_info.session_id,
-                        text=entry.text,
-                        is_complete=True,
-                        content_type=entry.content_type,
-                        tool_use_id=entry.tool_use_id,
-                        role=entry.role,
-                        tool_name=entry.tool_name,
-                    ))
+                    new_messages.append(
+                        NewMessage(
+                            session_id=session_info.session_id,
+                            text=entry.text,
+                            is_complete=True,
+                            content_type=entry.content_type,
+                            tool_use_id=entry.tool_use_id,
+                            role=entry.role,
+                            tool_name=entry.tool_name,
+                        )
+                    )
 
                 self.state.update_session(tracked)
 
@@ -351,7 +596,7 @@ class SessionMonitor:
                     # Only process entries for our tmux session
                     if not key.startswith(prefix):
                         continue
-                    window_name = key[len(prefix):]
+                    window_name = key[len(prefix) :]
                     session_id = info.get("session_id", "")
                     if session_id:
                         window_to_session[window_name] = session_id
@@ -370,7 +615,9 @@ class SessionMonitor:
                 stale_sessions.append(session_id)
 
         if stale_sessions:
-            logger.info(f"[Startup cleanup] Removing {len(stale_sessions)} stale sessions")
+            logger.info(
+                f"[Startup cleanup] Removing {len(stale_sessions)} stale sessions"
+            )
             for session_id in stale_sessions:
                 self.state.remove_session(session_id)
                 self._file_mtimes.pop(session_id, None)
@@ -389,7 +636,9 @@ class SessionMonitor:
         for window_name, old_session_id in self._last_session_map.items():
             new_session_id = current_map.get(window_name)
             if new_session_id and new_session_id != old_session_id:
-                logger.info(f"Window '{window_name}' session changed: {old_session_id} -> {new_session_id}")
+                logger.info(
+                    f"Window '{window_name}' session changed: {old_session_id} -> {new_session_id}"
+                )
                 sessions_to_remove.add(old_session_id)
 
         # Check for deleted windows (window in old map but not in current)
@@ -399,7 +648,9 @@ class SessionMonitor:
 
         for window_name in deleted_windows:
             old_session_id = self._last_session_map[window_name]
-            logger.info(f"Window '{window_name}' deleted, removing session {old_session_id}")
+            logger.info(
+                f"Window '{window_name}' deleted, removing session {old_session_id}"
+            )
             sessions_to_remove.add(old_session_id)
 
         # Perform cleanup
@@ -431,7 +682,7 @@ class SessionMonitor:
 
         while self._running:
             try:
-                # Load hook-based session map updates
+                # Load plugin-bridge session map updates
                 await session_manager.load_session_map()
 
                 # Detect session_map changes and cleanup replaced/removed sessions
@@ -444,9 +695,7 @@ class SessionMonitor:
                 for msg in new_messages:
                     status = "complete" if msg.is_complete else "streaming"
                     preview = msg.text[:80] + ("..." if len(msg.text) > 80 else "")
-                    logger.info(
-                        "[%s] session=%s: %s", status, msg.session_id, preview
-                    )
+                    logger.info("[%s] session=%s: %s", status, msg.session_id, preview)
                     if self._message_callback:
                         try:
                             await self._message_callback(msg)
