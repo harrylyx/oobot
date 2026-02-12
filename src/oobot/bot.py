@@ -110,6 +110,7 @@ from .handlers.status_polling import status_poll_loop
 from .screenshot import text_to_image
 from .session import session_manager
 from .session_monitor import NewMessage, SessionMonitor
+from .terminal_parser import parse_variants_value
 from .tmux_manager import tmux_manager
 
 logger = logging.getLogger(__name__)
@@ -127,6 +128,7 @@ OC_COMMANDS: dict[str, str] = {
     "cost": "↗ Show token/cost usage",
     "help": "↗ Show OpenCode help",
     "memory": "↗ Edit memory file",
+    "session": "↗ Switch OpenCode session",
 }
 
 MAX_TRANSFER_BYTES = 20 * 1024 * 1024
@@ -558,6 +560,7 @@ _KEYS_SEND_MAP: dict[str, tuple[str, bool, bool]] = {
     "spc": ("Space", False, False),
     "tab": ("Tab", False, False),
     "cc": ("C-c", False, False),
+    "ctv": ("C-t", False, False),
 }
 
 # key_id → display label (shown in callback answer toast)
@@ -571,7 +574,11 @@ _KEY_LABELS: dict[str, str] = {
     "spc": "␣ Space",
     "tab": "⇥ Tab",
     "cc": "^C",
+    "ctv": "^T Variants",
 }
+
+# Keys that also send a visible feedback message in chat.
+_KEY_CHAT_FEEDBACK_IDS: set[str] = {"ctv"}
 
 
 def _build_screenshot_keyboard(window_name: str) -> InlineKeyboardMarkup:
@@ -589,10 +596,11 @@ def _build_screenshot_keyboard(window_name: str) -> InlineKeyboardMarkup:
             [btn("←", "lt"), btn("↓", "dn"), btn("→", "rt")],
             [btn("⎋ Esc", "esc"), btn("^C", "cc"), btn("⏎ Enter", "ent")],
             [
+                btn("⌃T Variants", "ctv"),
                 InlineKeyboardButton(
                     "🔄 Refresh",
                     callback_data=f"{CB_SCREENSHOT_REFRESH}{window_name}"[:64],
-                )
+                ),
             ],
         ]
     )
@@ -617,8 +625,10 @@ def _build_shortcuts_keyboard(window_name: str) -> InlineKeyboardMarkup:
         [
             [oc_btn("/clear", "clear"), oc_btn("/compact", "compact")],
             [oc_btn("/cost", "cost"), oc_btn("/help", "help")],
-            [oc_btn("/memory", "memory"), key_btn("⎋ Esc", "esc")],
+            [oc_btn("/session", "session"), oc_btn("/memory", "memory")],
+            [key_btn("⎋ Esc", "esc")],
             [key_btn("^C", "cc"), key_btn("⏎ Enter", "ent"), key_btn("⇥ Tab", "tab")],
+            [key_btn("⌃T Variants", "ctv")],
             [
                 InlineKeyboardButton(
                     "📸 Screenshot",
@@ -1322,16 +1332,47 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             await query.answer("Window not found", show_alert=True)
             return
 
-        await tmux_manager.send_keys(
+        sent = await tmux_manager.send_keys(
             w.window_id, tmux_key, enter=enter, literal=literal
         )
-        await query.answer(_KEY_LABELS.get(key_id, key_id))
+        key_label = _KEY_LABELS.get(key_id, key_id)
+        if not sent:
+            await query.answer("Failed to send key", show_alert=True)
+            if key_id in _KEY_CHAT_FEEDBACK_IDS and query.message:
+                thread_id = _get_thread_id(update)
+                await safe_send(
+                    context.bot,
+                    query.message.chat.id,
+                    f"❌ Failed to send {key_label} to {window_name}",
+                    message_thread_id=thread_id,
+                )
+            return
 
-        # Refresh screenshot after key press
+        await query.answer(key_label)
+
+        # Refresh screenshot after key press and inspect latest footer state.
         await asyncio.sleep(0.5)
-        text = await tmux_manager.capture_pane(w.window_id, with_ansi=True)
-        if text and query.message and getattr(query.message, "document", None):
-            png_bytes = await text_to_image(text, with_ansi=True)
+        pane_text = await tmux_manager.capture_pane(w.window_id)
+        if key_id in _KEY_CHAT_FEEDBACK_IDS and query.message:
+            thread_id = _get_thread_id(update)
+            variants_value = parse_variants_value(pane_text or "")
+            feedback_text = (
+                f"⚡ [{window_name}] Variants: `{variants_value}`"
+                if variants_value
+                else f"⚡ [{window_name}] Sent: {key_label}"
+            )
+            await safe_send(
+                context.bot,
+                query.message.chat.id,
+                feedback_text,
+                message_thread_id=thread_id,
+            )
+
+        if query.message and getattr(query.message, "document", None):
+            ansi_text = await tmux_manager.capture_pane(w.window_id, with_ansi=True)
+            if not ansi_text:
+                return
+            png_bytes = await text_to_image(ansi_text, with_ansi=True)
             keyboard = _build_screenshot_keyboard(window_name)
             try:
                 await query.edit_message_media(

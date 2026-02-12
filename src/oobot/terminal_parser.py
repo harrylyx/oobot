@@ -5,11 +5,13 @@ Parses captured tmux pane content to detect:
     RestoreCheckpoint) via regex-based UIPattern matching with top/bottom
     delimiters.
   - Status line (spinner characters + working text) by scanning from bottom up.
+  - Current variants value (xlow/low/medium/high/xhigh) from footer/status lines.
 
 All OpenCode text patterns live here. To support a new UI type or
 a changed OpenCode version, edit UI_PATTERNS / STATUS_SPINNERS.
 
-Key functions: is_interactive_ui(), extract_interactive_content(), parse_status_line().
+Key functions: is_interactive_ui(), extract_interactive_content(),
+parse_status_line(), parse_variants_value().
 """
 
 from __future__ import annotations
@@ -62,13 +64,13 @@ UI_PATTERNS: list[UIPattern] = [
     ),
     UIPattern(
         name="AskUserQuestion",
-        top=(re.compile(r"^\s*←\s+[☐✔☒]"),),   # Multi-tab: no bottom needed
+        top=(re.compile(r"^\s*←\s+[☐✔☒]"),),  # Multi-tab: no bottom needed
         bottom=(),
         min_gap=1,
     ),
     UIPattern(
         name="AskUserQuestion",
-        top=(re.compile(r"^\s*[☐✔☒]"),),        # Single-tab: bottom required
+        top=(re.compile(r"^\s*[☐✔☒]"),),  # Single-tab: bottom required
         bottom=(re.compile(r"^\s*Enter to select"),),
         min_gap=1,
     ),
@@ -101,8 +103,7 @@ _RE_LONG_DASH = re.compile(r"^─{5,}$")
 def _shorten_separators(text: str) -> str:
     """Replace lines of 5+ ─ characters with exactly ─────."""
     return "\n".join(
-        "─────" if _RE_LONG_DASH.match(line) else line
-        for line in text.split("\n")
+        "─────" if _RE_LONG_DASH.match(line) else line for line in text.split("\n")
     )
 
 
@@ -174,6 +175,14 @@ def is_interactive_ui(pane_text: str) -> bool:
 # Spinner characters OpenCode uses in its status line
 STATUS_SPINNERS = frozenset(["·", "✻", "✽", "✶", "✳", "✢"])
 
+# OpenCode variants values shown in footer/status area.
+VARIANT_VALUES = frozenset(["xlow", "low", "medium", "high", "xhigh"])
+
+_RE_VARIANT_LINE = re.compile(
+    r"(?:^|[\s·|:])(?P<variant>xlow|low|medium|high|xhigh)\s*$",
+    re.IGNORECASE,
+)
+
 
 def parse_status_line(pane_text: str) -> str | None:
     """Extract the OpenCode status line from terminal output.
@@ -193,4 +202,30 @@ def parse_status_line(pane_text: str) -> str | None:
             continue
         if line[0] in STATUS_SPINNERS:
             return line[1:].strip()
+    return None
+
+
+def parse_variants_value(pane_text: str) -> str | None:
+    """Extract current OpenCode variants value from terminal footer/status.
+
+    Scans the bottom part of the pane where OpenCode renders model/status info,
+    e.g. "Plan GPT-5.3 Codex OpenAI · xhigh".
+    """
+    if not pane_text:
+        return None
+
+    lines = pane_text.strip().split("\n")
+    for raw_line in reversed(lines[-30:]):
+        line = raw_line.strip()
+        if not line:
+            continue
+        if "ctrl+t variants" in line.lower():
+            continue
+
+        match = _RE_VARIANT_LINE.search(line)
+        if not match:
+            continue
+        variant = match.group("variant").lower()
+        if variant in VARIANT_VALUES:
+            return variant
     return None

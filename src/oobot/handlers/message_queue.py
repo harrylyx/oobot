@@ -188,9 +188,7 @@ async def _message_queue_worker(bot: Bot, user_id: int) -> None:
                         queue, task, lock
                     )
                     if merge_count > 0:
-                        logger.debug(
-                            f"Merged {merge_count} tasks for user {user_id}"
-                        )
+                        logger.debug(f"Merged {merge_count} tasks for user {user_id}")
                         # Mark merged tasks as done
                         for _ in range(merge_count):
                             queue.task_done()
@@ -200,7 +198,11 @@ async def _message_queue_worker(bot: Bot, user_id: int) -> None:
                 elif task.task_type == "status_clear":
                     await _do_clear_status_message(bot, user_id, task.thread_id or 0)
             except RetryAfter as e:
-                retry_secs = e.retry_after if isinstance(e.retry_after, int) else int(e.retry_after.total_seconds())
+                retry_secs = (
+                    e.retry_after
+                    if isinstance(e.retry_after, int)
+                    else int(e.retry_after.total_seconds())
+                )
                 logger.warning(
                     f"Flood control for user {user_id}, pausing {retry_secs}s"
                 )
@@ -242,7 +244,7 @@ async def _process_content_task(bot: Bot, user_id: int, task: MessageTask) -> No
                 await bot.edit_message_text(
                     chat_id=chat_id,
                     message_id=edit_msg_id,
-                    text=full_text,
+                    text=convert_markdown(full_text),
                     parse_mode="MarkdownV2",
                     link_preview_options=NO_LINK_PREVIEW,
                 )
@@ -278,14 +280,20 @@ async def _process_content_task(bot: Bot, user_id: int, task: MessageTask) -> No
         if first_part:
             first_part = False
             converted_msg_id = await _convert_status_to_content(
-                bot, user_id, tid, wname, part,
+                bot,
+                user_id,
+                tid,
+                wname,
+                part,
             )
             if converted_msg_id is not None:
                 last_msg_id = converted_msg_id
                 continue
 
         sent = await rate_limit_send_message(
-            bot, chat_id, part,
+            bot,
+            chat_id,
+            part,
             **_send_kwargs(task.thread_id),  # type: ignore[arg-type]
         )
 
@@ -301,7 +309,11 @@ async def _process_content_task(bot: Bot, user_id: int, task: MessageTask) -> No
 
 
 async def _convert_status_to_content(
-    bot: Bot, user_id: int, thread_id_or_0: int, window_name: str, content_text: str,
+    bot: Bot,
+    user_id: int,
+    thread_id_or_0: int,
+    window_name: str,
+    content_text: str,
 ) -> int | None:
     """Convert status message to content message by editing it.
 
@@ -329,7 +341,7 @@ async def _convert_status_to_content(
         await bot.edit_message_text(
             chat_id=chat_id,
             message_id=msg_id,
-            text=content_text,
+            text=convert_markdown(content_text),
             parse_mode="MarkdownV2",
             link_preview_options=NO_LINK_PREVIEW,
         )
@@ -354,7 +366,9 @@ async def _convert_status_to_content(
             return None
 
 
-async def _process_status_update_task(bot: Bot, user_id: int, task: MessageTask) -> None:
+async def _process_status_update_task(
+    bot: Bot, user_id: int, task: MessageTask
+) -> None:
     """Process a status update task."""
     wname = task.window_name or ""
     tid = task.thread_id or 0
@@ -367,9 +381,8 @@ async def _process_status_update_task(bot: Bot, user_id: int, task: MessageTask)
         await _do_clear_status_message(bot, user_id, tid)
         return
 
-            # Send typing indicator if OpenCode is interruptible (working)
+    # Send typing indicator if OpenCode is interruptible (working)
 
-    
     from telegram.constants import ChatAction
 
     if "esc to interrupt" in status_text.lower():
@@ -435,7 +448,9 @@ async def _do_send_status_message(
     thread_id: int | None = thread_id_or_0 if thread_id_or_0 != 0 else None
     chat_id = session_manager.resolve_chat_id(user_id, thread_id)
     sent = await rate_limit_send_message(
-        bot, chat_id, text,
+        bot,
+        chat_id,
+        text,
         **_send_kwargs(thread_id),  # type: ignore[arg-type]
     )
     if sent:
@@ -443,7 +458,9 @@ async def _do_send_status_message(
 
 
 async def _do_clear_status_message(
-    bot: Bot, user_id: int, thread_id_or_0: int = 0,
+    bot: Bot,
+    user_id: int,
+    thread_id_or_0: int = 0,
 ) -> None:
     """Delete the status message for a user (internal, called from worker)."""
     skey = (user_id, thread_id_or_0)
@@ -459,7 +476,10 @@ async def _do_clear_status_message(
 
 
 async def _check_and_send_status(
-    bot: Bot, user_id: int, window_name: str, thread_id: int | None = None,
+    bot: Bot,
+    user_id: int,
+    window_name: str,
+    thread_id: int | None = None,
 ) -> None:
     """Check terminal for status line and send status message if present."""
     # Skip if there are more messages pending in the queue
@@ -493,7 +513,9 @@ async def enqueue_content_message(
     """Enqueue a content message task."""
     logger.debug(
         "Enqueue content: user=%d, window=%s, content_type=%s",
-        user_id, window_name, content_type,
+        user_id,
+        window_name,
+        content_type,
     )
     queue = get_or_create_queue(bot, user_id)
 
@@ -546,8 +568,7 @@ def clear_tool_msg_ids_for_topic(user_id: int, thread_id: int | None = None) -> 
     tid = thread_id or 0
     # Find and remove all matching keys
     keys_to_remove = [
-        key for key in _tool_msg_ids
-        if key[1] == user_id and key[2] == tid
+        key for key in _tool_msg_ids if key[1] == user_id and key[2] == tid
     ]
     for key in keys_to_remove:
         _tool_msg_ids.pop(key, None)

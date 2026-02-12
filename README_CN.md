@@ -125,7 +125,7 @@ Bot 本地命令：
 
 OpenCode 命令转发：
 
-- 菜单快捷：`/clear`、`/compact`、`/cost`、`/help`、`/memory`
+- 菜单快捷：`/clear`、`/compact`、`/cost`、`/help`、`/memory`、`/session`
 - 其他未知 `/command` 也会原样转发到 OpenCode
 
 ## 文件传输行为

@@ -127,7 +127,7 @@ Bot-side commands:
 
 OpenCode command forwarding:
 
-- Menu shortcuts: `/clear`, `/compact`, `/cost`, `/help`, `/memory`
+- Menu shortcuts: `/clear`, `/compact`, `/cost`, `/help`, `/memory`, `/session`
 - Any unknown `/command` is also forwarded to OpenCode as-is
 
 ## File Transfer Behavior
