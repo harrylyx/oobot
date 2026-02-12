@@ -1446,7 +1446,6 @@ async def post_init(application: Application) -> None:
         BotCommand("pwd", "Show current project directory"),
         BotCommand("ls", "List files in current project"),
         BotCommand("download", "Download a file from this project"),
-        BotCommand("kill", "Kill session and delete topic"),
     ]
     # Add OpenCode slash commands
     for cmd_name, desc in OC_COMMANDS.items():

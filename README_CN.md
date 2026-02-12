@@ -1,265 +1,167 @@
 # OOBot
 
-通过 Telegram 远程控制 OpenCode 会话 — 监控、交互、管理运行在 tmux 中的 AI 编程会话。
+OOBot 是一个用于通过 Telegram 控制 tmux 中 OpenCode 会话的机器人。
 
-> 本项目基于 [ccbot](https://github.com/six-ddc/ccbot) 修改并持续演进，适配 OpenCode 工作流。
+> 本项目基于 [ccbot](https://github.com/six-ddc/ccbot) 修改，并围绕 OpenCode 场景持续演进。
 
-https://github.com/user-attachments/assets/15ffb38e-5eb9-4720-93b9-412e4961dc93
+## 项目定位
 
-## 为什么做 OOBot？
+OOBot 采用严格的一一映射模型：
 
-OpenCode 运行在终端里。当你离开电脑 — 通勤路上、躺在沙发上、或者只是不在工位 — 会话仍在继续，但你失去了查看和控制的能力。
+- 1 个 Telegram 话题 = 1 个 tmux 窗口 = 1 个 OpenCode 会话
 
-OOBot 让你**通过 Telegram 无缝接管同一个会话**。核心设计思路是：它操作的是 **tmux**，而不是 OpenCode SDK。你的 OpenCode 进程始终在 tmux 窗口里运行，OOBot 只是读取它的输出并向它发送按键。这意味着：
+它不是再创建一套独立 API 会话，而是直接操作你本机 tmux 里的同一个 OpenCode 进程。
 
-- **从电脑无缝切换到手机** — OpenCode 正在执行重构？走开就是了，继续在 Telegram 上监控和回复。
-- **随时切换回电脑** — tmux 会话从未中断，直接 `tmux attach` 就能回到终端，完整的滚动历史和上下文都在。
-- **并行运行多个会话** — 每个 Telegram 话题对应一个独立的 tmux 窗口，一个聊天组里就能管理多个项目。
+## 当前功能
 
-市面上其他 OpenCode Telegram Bot 通常封装 OpenCode SDK 来创建独立的 API 会话，这些会话是隔离的 — 你无法在终端里恢复它们。OOBot 采取了不同的方式：它只是 tmux 之上的一个薄控制层，终端始终是数据源，你永远不会失去切换回去的能力。
+- 话题绑定路由（仅话题模式）
+- 文本消息通过 tmux 按键转发到 OpenCode
+- 从 OpenCode 存储记录实时监控并推送结果
+- 交互式问题处理（AskUserQuestion / ExitPlanMode）
+- 历史消息分页（`/history` 默认最新页）
+- 终端截图和按键控制（`/screenshot`）
+- 移动端快捷面板（`/keys`）
+- 文件上传（Telegram 文档 -> 项目目录）
+- 文件下载（`/download 相对路径`）
+- 轻量文件操作（`/pwd`、`/ls`）
+- 通过插件桥接维护会话映射（`session_map.json`）
 
-实际上，OOBot 自身就是用这种方式开发的 — 通过 OOBot 在 Telegram 上监控和驱动 OpenCode 会话来迭代自身。
+## 运行依赖
 
-## 功能特性
-
-- **基于话题的会话** — 每个 Telegram 话题 1:1 映射到一个 tmux 窗口和 OpenCode 会话
-- **实时通知** — 接收助手回复、思考过程、工具调用/结果、本地命令输出的 Telegram 消息
-- **交互式 UI** — 通过内联键盘操作 AskUserQuestion、ExitPlanMode 和权限提示
-- **发送消息** — 通过 tmux 按键将文字转发给 OpenCode
-- **文件传输** — 将 Telegram 文档上传到绑定项目目录，并通过 `/download` 下载文件
-- **斜杠命令转发** — 任何 `/command` 直接发送给 OpenCode（如 `/clear`、`/compact`、`/cost`）
-- **移动端快捷键** — 使用 `/keys` 打开快捷面板，一键触发常用 OpenCode 命令和按键
-- **创建新会话** — 通过目录浏览器从 Telegram 启动 OpenCode 会话
-- **关闭会话** — 关闭话题自动终止关联的 tmux 窗口
-- **消息历史** — 分页浏览对话历史（默认显示最新）
-- **插件桥接会话追踪** — 通过 `session.created` 事件桥接自动关联 tmux 窗口与 OpenCode 会话
-- **持久化状态** — 话题绑定和读取偏移量在重启后保持
+- Python 3.10+
+- `uv`
+- `tmux`
+- `opencode` 命令行
+- 已开启话题模式的 Telegram 群组机器人
 
 ## 安装
 
 ```bash
-cd oobot
 uv sync
 ```
 
-请始终通过 `uv` 使用项目虚拟环境（`uv run ...`），避免使用全局 `python`/`pip` 安装以免污染环境。
-本机建议用 `pyenv` 管理 Python 版本，再用 `uv` 管理虚拟环境和依赖（例如先 `pyenv version`，再 `uv sync`）。
+如需本地类型检查工具：
+
+```bash
+uv sync --extra dev
+```
 
 ## 配置
 
-**1. 创建 Telegram Bot 并启用话题模式：**
-
-1. 与 [@BotFather](https://t.me/BotFather) 对话创建新 Bot 并获取 Token
-2. 打开 @BotFather 的个人页面，点击 **Open App** 启动小程序
-3. 选择你的 Bot，进入 **Settings** > **Bot Settings**
-4. 启用 **Threaded Mode**（话题模式）
-
-**2. 配置环境变量：**
+复制环境变量模板：
 
 ```bash
 cp .env.example .env
 ```
 
-`oobot` 会从当前项目目录（你运行命令的位置）读取 `.env`。
+`oobot` 会读取你当前执行 `uv run oobot` 目录下的 `.env`。
 
-**必填项：**
+必填项：
 
 | 变量 | 说明 |
-|---|---|
-| `TELEGRAM_BOT_TOKEN` | 从 @BotFather 获取的 Bot Token |
-| `ALLOWED_USERS` | 逗号分隔的 Telegram 用户 ID |
+| --- | --- |
+| `TELEGRAM_BOT_TOKEN` | BotFather 提供的机器人 Token |
+| `ALLOWED_USERS` | 允许访问的 Telegram 用户 ID，逗号分隔 |
 
-**可选项：**
+可选项：
 
 | 变量 | 默认值 | 说明 |
-|---|---|---|
-| `OOBOT_DIR` | `./.oobot` | 配置/状态目录 |
-| `TMUX_SESSION_NAME` | `oobot` | tmux 会话名称 |
-| `OPENCODE_COMMAND` | `opencode` | 新窗口中运行的命令 |
+| --- | --- | --- |
+| `OOBOT_DIR` | `./.oobot` | 运行时状态目录 |
+| `TMUX_SESSION_NAME` | `oobot` | tmux 会话名 |
+| `OPENCODE_COMMAND` | `opencode` | 新窗口中启动命令 |
 | `OPENCODE_STORAGE_PATH` | `~/.local/share/opencode/storage` | OpenCode 存储后端路径 |
-| `OPENCODE_PROJECTS_PATH` | `~/.opencode/projects` | 旧版 OpenCode JSONL 路径 |
+| `OPENCODE_PROJECTS_PATH` | `~/.opencode/projects` | 旧版 JSONL 路径 |
 | `MONITOR_POLL_INTERVAL` | `2.0` | 轮询间隔（秒） |
 
-> 如果在 VPS 上运行且没有交互终端来批准权限，可以考虑：
-> ```
-> OPENCODE_COMMAND=IS_SANDBOX=1 opencode --dangerously-skip-permissions
-> ```
+## 安装 Hook（推荐）
 
-## Hook 设置（推荐）
-
-通过 CLI 自动安装：
+安装 OpenCode 插件桥接：
 
 ```bash
 uv run oobot hook --install
 ```
 
-该命令会安装一个插件桥接文件：`~/.config/opencode/plugins/oobot-session-map.js`。
-当前 OpenCode 配置 schema 不接受顶层 `hooks` 字段。
+会写入：
 
-Hook 会将窗口-会话映射写入 `$OOBOT_DIR/session_map.json`（默认 `./.oobot/session_map.json`），这样 Bot 就能自动追踪每个 tmux 窗口中运行的 OpenCode 会话 — 即使在 `/clear` 或会话重启后也能保持关联。
+- `~/.config/opencode/plugins/oobot-session-map.js`
 
-## 使用方法
+该桥接会更新 `$OOBOT_DIR/session_map.json`，用于维护 tmux 窗口与 OpenCode 会话的映射。
+
+## 启动
 
 ```bash
 uv run oobot
 ```
 
-### 命令
+## 话题工作流
 
-**Bot 命令：**
+1. 在 Telegram 新建一个话题。
+2. 在该话题发送任意文本。
+3. OOBot 弹出目录浏览器。
+4. 选择并确认目录。
+5. OOBot 创建 tmux 窗口、启动 OpenCode、绑定话题并转发刚才消息。
 
-| 命令 | 说明 |
-|---|---|
-| `/start` | 显示欢迎消息 |
-| `/history` | 当前话题的消息历史 |
-| `/screenshot` | 截取终端屏幕 |
-| `/keys` | 显示移动端快捷键面板 |
-| `/esc` | 发送 Escape 键中断 OpenCode |
-| `/pwd` | 显示当前项目目录 |
-| `/ls` | 列出当前项目文件 |
-| `/download` | 从项目目录下载文件 |
+结束会话时，直接关闭该话题。OOBot 会自动终止对应 tmux 窗口并清理绑定。
 
-**OpenCode 命令（通过 tmux 转发）：**
+## 命令
+
+Bot 本地命令：
 
 | 命令 | 说明 |
-|---|---|
-| `/clear` | 清除对话历史 |
-| `/compact` | 压缩对话上下文 |
-| `/cost` | 显示 Token/费用统计 |
-| `/help` | 显示 OpenCode 帮助 |
-| `/memory` | 编辑记忆文件 |
+| --- | --- |
+| `/start` | 欢迎信息 |
+| `/history` | 查看当前话题历史消息 |
+| `/screenshot` | 终端截图（含按键控制） |
+| `/keys` | 打开移动端快捷面板 |
+| `/esc` | 发送 Escape |
+| `/pwd` | 查看当前项目目录 |
+| `/ls [path]` | 列出当前项目下文件/目录 |
+| `/download <path>` | 下载当前项目中的文件 |
 
-其他未识别的 `/command` 也会原样转发给 OpenCode（如 `/review`、`/doctor`、`/init`）。
+OpenCode 命令转发：
 
-### 文件上传 / 下载
+- 菜单快捷：`/clear`、`/compact`、`/cost`、`/help`、`/memory`
+- 其他未知 `/command` 也会原样转发到 OpenCode
 
-- 上传：在已绑定话题里发送 Telegram **文档**，OOBot 会保存到当前项目目录。
-- 指定上传路径：可在文档 caption 中写 `src/data/input.json`（或 `/upload src/data/input.json`）。
-- 下载：在话题内执行 `/download 相对路径/文件名`。
+## 文件传输行为
 
-### 话题工作流
+上传：
 
-**1 话题 = 1 窗口 = 1 会话。** Bot 在 Telegram 论坛（话题）模式下运行。
+- 在已绑定话题中发送 Telegram 文档。
+- 可用 caption 指定目标路径：
+  - `src/data/input.json`
+  - `/upload src/data/input.json`
+- 目标路径必须位于当前项目目录内。
+- 同名文件会自动添加数字后缀避免覆盖。
 
-**创建新会话：**
+下载：
 
-1. 在 Telegram 群组中创建新话题
-2. 在话题中发送任意消息
-3. 弹出目录浏览器 — 选择项目目录
-4. 自动创建 tmux 窗口，启动 `opencode`，并转发待处理的消息
+- 使用 `/download 相对路径/文件名`。
+- 路径限制在当前项目目录内。
 
-**发送消息：**
+限制：
 
-话题绑定会话后，直接在话题中发送文字即可 — 文字会通过 tmux 按键转发给 OpenCode。
+- 当前最大传输大小为 20 MB。
 
-**关闭会话：**
+## 运行状态文件
 
-在 Telegram 中关闭（或删除）话题，关联的 tmux 窗口会自动终止，绑定也会被移除。
+| 路径 | 用途 |
+| --- | --- |
+| `$OOBOT_DIR/state.json` | 话题绑定与用户读取偏移 |
+| `$OOBOT_DIR/session_map.json` | 窗口 -> OpenCode 会话映射 |
+| `$OOBOT_DIR/monitor_state.json` | 监控偏移与轮询状态 |
 
-### 消息历史
+## 开发说明
 
-使用内联按钮导航：
-
-```
-📋 [项目名称] Messages (42 total)
-
-───── 14:32 ─────
-
-👤 修复登录 bug
-
-───── 14:33 ─────
-
-我来排查这个登录 bug...
-
-[◀ Older]    [2/9]    [Newer ▶]
-```
-
-### 通知
-
-监控器每 2 秒轮询会话 JSONL 文件，并发送以下通知：
-- **助手回复** — OpenCode 的文字回复
-- **思考过程** — 以可展开引用块显示
-- **工具调用/结果** — 带统计摘要（如 "Read 42 lines"、"Found 5 matches"）
-- **本地命令输出** — 命令的标准输出（如 `git status`），前缀为 `❯ command_name`
-
-通知发送到绑定了该会话窗口的话题中。
-
-## 在 tmux 中运行 OpenCode
-
-### 方式一：通过 Telegram 创建（推荐）
-
-1. 在 Telegram 群组中创建新话题
-2. 发送任意消息
-3. 从浏览器中选择项目目录
-
-### 方式二：手动创建
+- 主要质量检查：
 
 ```bash
-tmux attach -t oobot
-tmux new-window -n myproject -c ~/Code/myproject
-# 在新窗口中启动 OpenCode
-opencode
+uv run pyright src/oobot
 ```
 
-窗口必须在 `oobot` tmux 会话中（可通过 `TMUX_SESSION_NAME` 配置）。OpenCode 启动时 Hook 会自动将其注册到 `session_map.json`。
+- 重启辅助脚本：
 
-## 架构概览
-
-```
-┌─────────────┐      ┌─────────────┐      ┌─────────────┐
-│  Topic ID   │ ───▶ │ Window Name │ ───▶ │ Session ID  │
-│  (Telegram) │      │   (tmux)    │      │  (OpenCode) │
-└─────────────┘      └─────────────┘      └─────────────┘
-     thread_bindings      session_map.json
-     (state.json)         (由 hook 写入)
-```
-
-**核心设计思路：**
-- **话题为中心** — 每个 Telegram 话题绑定一个 tmux 窗口，话题就是会话列表
-- **窗口为中心** — 所有状态以 tmux 窗口名称为锚点（如 `myproject`），同一目录可有多个窗口（自动后缀：`myproject-2`）
-- **基于插件桥接的会话追踪** — OpenCode 的 `session.created` 事件桥接写入 `session_map.json`；监控器每次轮询读取它以自动检测会话变化
-- **工具调用配对** — `tool_use_id` 跨轮询周期追踪；工具结果直接编辑原始的工具调用 Telegram 消息
-- **MarkdownV2 + 降级** — 所有消息通过 `telegramify-markdown` 转换，解析失败时降级为纯文本
-- **解析层不截断** — 完整保留内容；发送层按 Telegram 4096 字符限制拆分
-
-## 数据存储
-
-| 路径 | 说明 |
-|---|---|
-| `$OOBOT_DIR/state.json` | 话题绑定、窗口状态、每用户读取偏移量 |
-| `$OOBOT_DIR/session_map.json` | Hook 生成的 `{tmux_session:window_name: {session_id, cwd}}` 映射 |
-| `$OOBOT_DIR/monitor_state.json` | 每会话的监控字节偏移量（防止重复通知） |
-| `~/.local/share/opencode/storage/` | OpenCode 会话数据（当前格式，只读） |
-| `~/.opencode/projects/` | OpenCode 会话数据（旧版 JSONL 格式，只读） |
-
-## 文件结构
-
-```
-src/oobot/
-├── __init__.py            # 包入口
-├── main.py                # CLI 调度器（hook 子命令 + bot 启动）
-├── hook.py                # Hook 子命令，用于会话追踪（+ --install）
-├── config.py              # 环境变量配置
-├── bot.py                 # Telegram Bot 设置、命令处理、话题路由
-├── session.py             # 会话管理、状态持久化、消息历史
-├── session_monitor.py     # JSONL 文件监控（轮询 + 变更检测）
-├── monitor_state.py       # 监控状态持久化（字节偏移量）
-├── transcript_parser.py   # OpenCode JSONL 对话记录解析
-├── terminal_parser.py     # 终端面板解析（交互式 UI + 状态行）
-├── markdown_v2.py         # Markdown → Telegram MarkdownV2 转换
-├── telegram_sender.py     # 消息拆分 + 同步 HTTP 发送
-├── screenshot.py          # 终端文字 → PNG 图片（支持 ANSI 颜色）
-├── utils.py               # 通用工具（原子 JSON 写入、JSONL 辅助函数）
-├── tmux_manager.py        # tmux 窗口管理（列出、创建、发送按键、终止）
-├── fonts/                 # 截图渲染用字体
-└── handlers/
-    ├── __init__.py        # Handler 模块导出
-    ├── callback_data.py   # 回调数据常量（CB_* 前缀）
-    ├── directory_browser.py # 目录浏览器内联键盘 UI
-    ├── history.py         # 消息历史分页
-    ├── interactive_ui.py  # 交互式 UI 处理（AskUser、ExitPlan、权限）
-    ├── message_queue.py   # 每用户消息队列 + worker（合并、限流）
-    ├── message_sender.py  # safe_reply / safe_edit / safe_send 辅助函数
-    ├── response_builder.py # 响应消息构建（格式化 tool_use、思考等）
-    └── status_polling.py  # 终端状态行轮询
+```bash
+./scripts/restart.sh
 ```
